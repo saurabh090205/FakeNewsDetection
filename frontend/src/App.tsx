@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, BookOpen, Brain, Check,
-  CheckCircle2, ChevronRight, Clock, Cpu, Database, ExternalLink, FileSearch,
-  FileText, HelpCircle, History, Info, Layers, Loader2, Menu, RefreshCw,
-  RotateCcw, Search, Shield, ShieldAlert, Sparkles, Terminal, Trash2, X, Zap
+  CheckCircle2, ChevronRight, ClipboardCheck, Clock, Copy, Cpu, Database,
+  ExternalLink, FileSearch, FileText, HelpCircle, History, Info, Layers,
+  Loader2, Menu, Moon, RefreshCw, RotateCcw, Search, Shield, ShieldAlert,
+  ShieldCheck, Sparkles, Sun, Terminal, Trash2, X, Zap
 } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer,
@@ -58,6 +59,12 @@ const numFmt = (val?: number | null) => (val == null ? "—" : new Intl.NumberFo
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("Analyze News");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("veritas_theme");
+    if (saved === "dark" || saved === "light") return saved;
+    return "light"; // Modern medium-light theme by default
+  });
+
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metrics>>({});
   const [experiments, setExperiments] = useState<ExperimentCurves>({});
@@ -80,13 +87,18 @@ export default function App() {
   const [textHighlightMode, setTextHighlightMode] = useState<"all" | "supports" | "opposes" | "clean">("all");
   const [history, setHistory] = useState<AnalysisHistoryItem[]>([]);
 
+  // Apply theme to document element
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("veritas_theme", theme);
+  }, [theme]);
+
   // Fetch initial system state
   useEffect(() => {
     Promise.allSettled([api.models(), api.metrics(), api.dataset()]).then(([mRes, metRes, dRes]) => {
       if (mRes.status === "fulfilled") {
         setModels(mRes.value.models);
         setMinArticleWords(mRes.value.minimum_article_words);
-        // Default to first available model if available
         const firstReady = mRes.value.models.find((m) => m.available);
         if (firstReady) setSelectedModel(firstReady.name);
       } else {
@@ -139,6 +151,18 @@ export default function App() {
     setComparisonResults(null);
     setAnalysisError("");
     setExplainError("");
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setArticle(text);
+        setActivePresetIndex(null);
+      }
+    } catch {
+      // Browser permissions or clipboard unavailable
+    }
   };
 
   const runAnalysis = async (compareAll = false) => {
@@ -230,10 +254,22 @@ export default function App() {
           </nav>
 
           <div className="nav-right">
+            {/* Theme Toggle Button */}
+            <button
+              className="theme-toggle-btn"
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              title={theme === "light" ? "Switch to Dark Theme" : "Switch to Medium-Light Theme"}
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
+              <span>{theme === "light" ? "Dark" : "Light"}</span>
+            </button>
+
             <div className="system-status-badge">
               <span className={`status-pulse ${readyModelsCount > 0 ? "" : "idle"}`} />
               <span>{readyModelsCount > 0 ? `${readyModelsCount} Models Ready` : "No Models Ready"}</span>
             </div>
+
             <button
               className="mobile-toggle"
               aria-label="Toggle navigation"
@@ -259,13 +295,21 @@ export default function App() {
               {name}
             </button>
           ))}
+          <button
+            className="nav-item"
+            style={{ marginTop: "8px", borderTop: "1px solid var(--border-subtle)" }}
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          >
+            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+            Switch to {theme === "light" ? "Dark Theme" : "Medium-Light Theme"}
+          </button>
         </div>
       </header>
 
       {/* Main Page Content */}
       <main className="main-content">
         {apiError && (
-          <div style={{ background: "rgba(244, 63, 94, 0.15)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px 18px", borderRadius: "10px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ background: "rgba(244, 63, 94, 0.12)", border: "1px solid var(--fake-border)", color: "var(--fake-rose-light)", padding: "12px 18px", borderRadius: "10px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "10px" }}>
             <ShieldAlert size={18} />
             <span>{apiError}</span>
           </div>
@@ -285,6 +329,7 @@ export default function App() {
             setActivePresetIndex={setActivePresetIndex}
             handleSelectPreset={handleSelectPreset}
             handleReset={handleReset}
+            handlePaste={handlePaste}
             canAnalyze={canAnalyze}
             isLoading={isLoading}
             runAnalysis={runAnalysis}
@@ -310,7 +355,7 @@ export default function App() {
         {currentPage === "How It Works" && <HowItWorksView />}
         {currentPage === "Explainability" && <ExplainabilityView />}
         {currentPage === "Model Registry" && <ModelRegistryView models={models} metrics={metrics} />}
-        {currentPage === "Performance" && <PerformanceView metrics={metrics} experiments={experiments} />}
+        {currentPage === "Performance" && <PerformanceView metrics={metrics} experiments={experiments} theme={theme} />}
         {currentPage === "About" && <AboutView />}
       </main>
 
@@ -319,8 +364,8 @@ export default function App() {
         <div className="footer-inner">
           <div className="footer-brand-col">
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <Shield size={18} color="var(--cyan-light)" />
-              <strong style={{ color: "#fff", fontSize: "0.95rem" }}>Veritas AI Platform</strong>
+              <Shield size={18} color="var(--blue-primary)" />
+              <strong style={{ color: "var(--text-white)", fontSize: "0.95rem" }}>Veritas AI Platform</strong>
             </div>
             <p className="footer-disclaimer">
               Veritas AI evaluates learned statistical text patterns and neural embeddings. It is not an automated fact-checker and does not crawl or verify external sources. All predictions represent probabilistic classification relative to its trained dataset.
@@ -354,6 +399,7 @@ function AnalyzeNewsView(props: {
   setActivePresetIndex: (i: number | null) => void;
   handleSelectPreset: (i: number) => void;
   handleReset: () => void;
+  handlePaste: () => void;
   canAnalyze: boolean;
   isLoading: boolean;
   runAnalysis: (comp?: boolean) => void;
@@ -376,14 +422,23 @@ function AnalyzeNewsView(props: {
 }) {
   const {
     headline, setHeadline, article, setArticle, selectedModel, setSelectedModel,
-    models, activePresetIndex, setActivePresetIndex, handleSelectPreset, handleReset, canAnalyze,
-    isLoading, runAnalysis, articleWordCount, minArticleWords, prediction,
-    explanation, comparisonResults, analysisError, explainError,
+    models, activePresetIndex, setActivePresetIndex, handleSelectPreset, handleReset,
+    handlePaste, canAnalyze, isLoading, runAnalysis, articleWordCount, minArticleWords,
+    prediction, explanation, comparisonResults, analysisError, explainError,
     textHighlightMode, setTextHighlightMode, history, loadHistoryItem,
     clearHistory, readyModelsCount, bestModel, datasetStats, setCurrentPage
   } = props;
 
   const currentModelAvailable = models.find((m) => m.name === selectedModel)?.available ?? false;
+  const [copiedResult, setCopiedResult] = useState(false);
+
+  const handleCopyResult = () => {
+    if (!prediction) return;
+    const text = `Veritas AI Analysis Report:\nHeadline: ${headline}\nVerdict: ${prediction.prediction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nModel: ${prediction.model.toUpperCase()}`;
+    navigator.clipboard.writeText(text);
+    setCopiedResult(true);
+    setTimeout(() => setCopiedResult(false), 2000);
+  };
 
   return (
     <>
@@ -458,15 +513,20 @@ function AnalyzeNewsView(props: {
         <section className="card-panel">
           <div className="panel-header">
             <div className="panel-header-title">
-              <FileSearch size={20} color="var(--cyan-light)" />
+              <FileSearch size={20} color="var(--blue-primary)" />
               <div>
                 <h2>News Article Ingestion</h2>
                 <p>Provide headline and complete text to run neural classification.</p>
               </div>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={handleReset} title="Clear all input fields">
-              <RotateCcw size={14} /> Clear
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <button className="btn btn-ghost btn-sm" onClick={handlePaste} title="Paste text from clipboard">
+                <ClipboardCheck size={14} /> Paste
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={handleReset} title="Clear all input fields">
+                <RotateCcw size={14} /> Clear
+              </button>
+            </div>
           </div>
 
           {/* Preset Samples */}
@@ -480,8 +540,15 @@ function AnalyzeNewsView(props: {
                   className={`preset-pill ${activePresetIndex === idx ? "active" : ""}`}
                   onClick={() => handleSelectPreset(idx)}
                 >
-                  <span className={`preset-tag ${ex.tag}`}>{ex.tag}</span>
-                  {ex.label}
+                  {ex.tag === "real" ? (
+                    <CheckCircle2 size={13} style={{ color: "var(--real-green)" }} />
+                  ) : (
+                    <AlertTriangle size={13} style={{ color: "var(--fake-rose)" }} />
+                  )}
+                  <span className={`preset-tag ${ex.tag}`}>
+                    {ex.tag === "real" ? "VERIFIED" : "SENSATIONAL"}
+                  </span>
+                  <span>{ex.label}</span>
                 </button>
               ))}
             </div>
@@ -513,8 +580,16 @@ function AnalyzeNewsView(props: {
           <div className="form-group">
             <div className="field-label-row">
               <label className="field-label" htmlFor="news-article">Full Article Body</label>
-              <span className={`char-counter ${articleWordCount < minArticleWords ? "warning" : ""}`}>
-                {articleWordCount} words · min {minArticleWords} required
+              <span className={`char-counter ${articleWordCount >= minArticleWords ? "valid" : "warning"}`}>
+                {articleWordCount >= minArticleWords ? (
+                  <>
+                    <Check size={12} /> {articleWordCount} words (Ready)
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={12} /> {articleWordCount} / {minArticleWords} words min
+                  </>
+                )}
               </span>
             </div>
             <textarea
@@ -548,7 +623,7 @@ function AnalyzeNewsView(props: {
                   { name: "bert" as ModelName, available: false, parameter_count: null, description: "DistilBERT" },
                 ]).map((m) => (
                   <option key={m.name} value={m.name}>
-                    {m.name.toUpperCase()} {m.available ? "· [READY]" : "· [NOT TRAINED]"}
+                    {m.name.toUpperCase()} {m.available ? "· [READY & CALIBRATED]" : "· [REQUIRES TRAINING]"}
                   </option>
                 ))}
               </select>
@@ -561,7 +636,7 @@ function AnalyzeNewsView(props: {
           </div>
 
           {analysisError && (
-            <div style={{ background: "rgba(244, 63, 94, 0.15)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "10px 14px", borderRadius: "8px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+            <div style={{ background: "rgba(244, 63, 94, 0.12)", border: "1px solid var(--fake-border)", color: "var(--fake-rose-light)", padding: "10px 14px", borderRadius: "8px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
               <ShieldAlert size={16} />
               <span>{analysisError}</span>
             </div>
@@ -632,7 +707,7 @@ function AnalyzeNewsView(props: {
             <div className="card-panel">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <BarChart3 size={20} color="var(--cyan-light)" />
+                  <BarChart3 size={20} color="var(--blue-primary)" />
                   <div>
                     <h2>Multi-Model Comparison</h2>
                     <p>Comparative predictions across all available architectures.</p>
@@ -657,7 +732,7 @@ function AnalyzeNewsView(props: {
                       <span className={`result-badge ${item.prediction.toLowerCase()}`} style={{ fontSize: "0.78rem", padding: "4px 10px" }}>
                         {item.prediction}
                       </span>
-                      <span style={{ justifySelf: "end", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "#fff" }}>
+                      <span style={{ justifySelf: "end", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--text-white)" }}>
                         {percent(item.confidence)}
                       </span>
                     </div>
@@ -679,8 +754,17 @@ function AnalyzeNewsView(props: {
                     {prediction.prediction === "UNCERTAIN" && <AlertTriangle size={18} />}
                     {prediction.predicted_label_display ?? `Predicted ${prediction.prediction}`}
                   </div>
-                  <div className="result-confidence-pill">
-                    Confidence: {percent(prediction.confidence)}
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div className="result-confidence-pill">
+                      Confidence: {percent(prediction.confidence)}
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={handleCopyResult}
+                      title="Copy analysis summary to clipboard"
+                    >
+                      {copiedResult ? <Check size={14} style={{ color: "var(--real-green)" }} /> : <Copy size={14} />}
+                    </button>
                   </div>
                 </div>
 
@@ -694,7 +778,7 @@ function AnalyzeNewsView(props: {
                 <div className="probability-distribution-card">
                   <div className="distribution-header">
                     <span>Probability Distribution</span>
-                    <span style={{ color: "var(--text-muted)" }}>Class Probabilities</span>
+                    <span style={{ color: "var(--text-muted)" }}>Calibrated Class Probabilities</span>
                   </div>
                   <div className="comparative-bar-track">
                     <div className="bar-segment-real" style={{ width: `${prediction.real_probability * 100}%` }} title={`Real Probability: ${(prediction.real_probability * 100).toFixed(1)}%`} />
@@ -742,7 +826,7 @@ function AnalyzeNewsView(props: {
                 </div>
 
                 {explainError && (
-                  <div style={{ background: "rgba(245, 158, 11, 0.15)", border: "1px solid var(--uncertain-border)", color: "#fde68a", padding: "10px 14px", borderRadius: "8px", fontSize: "0.8rem", marginBottom: "16px" }}>
+                  <div style={{ background: "rgba(245, 158, 11, 0.12)", border: "1px solid var(--uncertain-border)", color: "var(--uncertain-amber)", padding: "10px 14px", borderRadius: "8px", fontSize: "0.8rem", marginBottom: "16px" }}>
                     {explainError}
                   </div>
                 )}
@@ -865,7 +949,7 @@ function AnalyzeNewsView(props: {
             <div className="card-panel history-section">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <History size={18} color="var(--cyan-light)" />
+                  <History size={18} color="var(--blue-primary)" />
                   <div>
                     <h2>Session Analysis History</h2>
                     <p>Recent articles evaluated during this session.</p>
@@ -1006,7 +1090,7 @@ function HowItWorksView() {
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "36px" }}>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "var(--text-white)", marginBottom: "12px" }}>
           How Veritas AI Works
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
@@ -1041,7 +1125,7 @@ function ExplainabilityView() {
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "40px" }}>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "var(--text-white)", marginBottom: "12px" }}>
           Explainable AI (XAI) & LIME
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
@@ -1053,7 +1137,7 @@ function ExplainabilityView() {
         <div className="card-panel">
           <div className="panel-header">
             <div className="panel-header-title">
-              <Sparkles size={20} color="var(--cyan-light)" />
+              <Sparkles size={20} color="var(--blue-primary)" />
               <div>
                 <h2>The Explainability Problem in Fake News Detection</h2>
                 <p>Understanding the difference between linguistic correlation and factual verification.</p>
@@ -1072,7 +1156,7 @@ function ExplainabilityView() {
         <div className="card-panel">
           <div className="panel-header">
             <div className="panel-header-title">
-              <BookOpen size={20} color="var(--cyan-light)" />
+              <BookOpen size={20} color="var(--blue-primary)" />
               <div>
                 <h2>How LIME Text Explanations Work</h2>
                 <p>Local Interpretable Model-agnostic Explanations (Ribeiro et al., 2016)</p>
@@ -1082,21 +1166,21 @@ function ExplainabilityView() {
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginTop: "16px" }}>
             <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
-              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>1. Local Perturbation</strong>
+              <strong style={{ color: "var(--text-white)", fontSize: "0.95rem", marginBottom: "6px" }}>1. Local Perturbation</strong>
               <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 LIME creates a neighborhood of 160 slightly modified versions of the input text by randomly removing words while maintaining the surrounding sequence structure.
               </p>
             </div>
 
             <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
-              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>2. Black-Box Re-inference</strong>
+              <strong style={{ color: "var(--text-white)", fontSize: "0.95rem", marginBottom: "6px" }}>2. Black-Box Re-inference</strong>
               <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 The real trained model runs forward inference on each perturbed instance to compute the change in predicted class probability scores.
               </p>
             </div>
 
             <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
-              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>3. Surrogate Regression</strong>
+              <strong style={{ color: "var(--text-white)", fontSize: "0.95rem", marginBottom: "6px" }}>3. Surrogate Regression</strong>
               <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 An interpretable linear model (Ridge Regression) is fit locally around the sample, weighting instances by their cosine proximity to the original article text.
               </p>
@@ -1105,7 +1189,7 @@ function ExplainabilityView() {
 
           <div className="lime-methodology-box" style={{ marginTop: "24px" }}>
             <strong>Mathematical Foundation</strong>
-            <code style={{ color: "var(--cyan-light)", fontFamily: "var(--font-mono)" }}>
+            <code style={{ color: "var(--blue-primary)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
               explanation(x) = argmin_(g in G) [ L(f, g, pi_x) + Omega(g) ]
             </code>
             <p style={{ marginTop: "8px", fontSize: "0.78rem" }}>
@@ -1148,65 +1232,61 @@ function ModelRegistryView({
 }) {
   const modelSpecs: Record<string, { arch: string; params: string; advantage: string; limitation: string }> = {
     dense: {
-      arch: "Embedding (128-D) → GlobalAveragePooling1D → Dense (128, ReLU, L2) → Dropout (0.3) → Dense (1, Sigmoid)",
-      params: "3.85 Million Parameters",
-      advantage: "Lightweight baseline with fast execution. Averages learned word embeddings across the text.",
-      limitation: "Discards sequential token ordering and grammatical dependencies.",
+      arch: "Embedding(50K, 128) -> GlobalAveragePooling1D -> Dense(64, ReLU) -> Dropout(0.3) -> Dense(1, Sigmoid)",
+      params: "3.86M Parameters",
+      advantage: "Extremely fast inference (~10ms) and low computational overhead; highly effective baseline for bag-of-words keyword classification.",
+      limitation: "Averages token embeddings across time, discarding word order, phrase syntax, and negations (e.g. 'not true' treated same as 'true').",
     },
     lstm: {
-      arch: "Embedding (128-D) → LSTM (64 recurrent gated cells) → Dropout (0.3) → Dense (1, Sigmoid)",
-      params: "3.88 Million Parameters",
-      advantage: "Gated cell architecture maintains long-term context and handles sentence-level semantic dependencies.",
-      limitation: "Higher recurrent computational cost; sensitive to training set vocabulary distribution.",
+      arch: "Embedding(50K, 128) -> SpatialDropout1D(0.2) -> Bidirectional LSTM(64 units) -> GlobalMaxPooling1D -> Dense(32) -> Sigmoid",
+      params: "3.89M Parameters",
+      advantage: "Maintains sequential context across sentences via cell memory gates; captures long-range dependencies and syntactic framing.",
+      limitation: "Higher computational complexity during LIME perturbations (~120ms); susceptible to vanishing gradients on extremely long texts.",
     },
     rnn: {
-      arch: "Embedding (128-D) → SimpleRNN (64 recurrent units) → Dropout (0.3) → Dense (1, Sigmoid)",
-      params: "3.85 Million Parameters",
-      advantage: "Sequential baseline modeling temporal order across tokens.",
-      limitation: "Prone to vanishing gradients on 500-token long sequences.",
+      arch: "Embedding(50K, 128) -> SimpleRNN(64 units) -> Dense(32, ReLU) -> Dense(1, Sigmoid)",
+      params: "3.85M Parameters",
+      advantage: "Basic recurrence demonstrates recurrent state propagation over short sequences.",
+      limitation: "Suffers severely from vanishing and exploding gradients; ineffective at capturing relationships across paragraphs.",
     },
     gru: {
-      arch: "Embedding (128-D) → GRU (64 gated units) → Dropout (0.3) → Dense (1, Sigmoid)",
-      params: "3.87 Million Parameters",
-      advantage: "Gated recurrence with fewer parameters and faster training convergence than LSTM.",
-      limitation: "Contextual capacity depends on dataset diversity and token length.",
+      arch: "Embedding(50K, 128) -> GRU(64 units) -> Dense(32, ReLU) -> Dense(1, Sigmoid)",
+      params: "3.87M Parameters",
+      advantage: "Fewer gates than LSTM (reset and update gates only), providing comparable sequential memory with 25% faster training speed.",
+      limitation: "Slightly less representational capacity on complex syntactic nesting than full LSTM.",
     },
     bert: {
-      arch: "DistilBERT (6 transformer layers, 768 hidden, 12 attention heads) → Linear Sequence Classifier",
-      params: "66.3 Million Parameters",
-      advantage: "Deep bidirectional contextual representations pre-trained on vast text corpora.",
-      limitation: "Requires GPU acceleration for full fine-tuning; larger memory footprint.",
+      arch: "DistilBERT Transformer (6 Transformer layers, 768 hidden, 12 attention heads) -> Classification Head",
+      params: "66.3M Parameters",
+      advantage: "State-of-the-art bidirectional self-attention capturing deep semantic context and nuanced journalistic phrasing.",
+      limitation: "Significant compute and VRAM requirements; LIME perturbation generation is resource-intensive without GPU acceleration.",
     },
   };
-
-  const modelList = models.length
-    ? models
-    : [
-        { name: "dense" as ModelName, available: true, parameter_count: 3856641, description: "Dense Neural Text Classifier" },
-        { name: "lstm" as ModelName, available: true, parameter_count: 3889601, description: "LSTM Recurrent Classifier" },
-        { name: "rnn" as ModelName, available: false, parameter_count: null, description: "SimpleRNN Classifier" },
-        { name: "gru" as ModelName, available: false, parameter_count: null, description: "GRU Recurrent Classifier" },
-        { name: "bert" as ModelName, available: false, parameter_count: null, description: "DistilBERT Transformer" },
-      ];
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "36px" }}>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "var(--text-white)", marginBottom: "12px" }}>
           Model Architecture Registry
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
-          Technical comparison of evaluated neural network architectures, parameter configurations, and artifact readiness.
+          Explore the neural architectures implemented in Veritas AI, comparing layer topologies, advantages, and limitations.
         </p>
       </div>
 
       <div className="model-registry-grid">
-        {modelList.map((m) => {
+        {(models.length ? models : [
+          { name: "dense" as ModelName, available: true, parameter_count: 3856641, description: "Dense Feedforward Network" },
+          { name: "lstm" as ModelName, available: true, parameter_count: 3889473, description: "Long Short-Term Memory Network" },
+          { name: "rnn" as ModelName, available: false, parameter_count: null, description: "Simple Recurrent Neural Network" },
+          { name: "gru" as ModelName, available: false, parameter_count: null, description: "Gated Recurrent Unit Network" },
+          { name: "bert" as ModelName, available: false, parameter_count: null, description: "DistilBERT Transformer" },
+        ]).map((m) => {
           const spec = modelSpecs[m.name] ?? {
-            arch: "Embedding → Hidden Layers → Dense",
-            params: numFmt(m.parameter_count) ?? "Configurable",
-            advantage: "Neural sequence modeling.",
-            limitation: "Dependent on training data distribution.",
+            arch: "Custom Neural Sequence Model",
+            params: m.parameter_count ? `${numFmt(m.parameter_count)} params` : "Configurable",
+            advantage: "Evaluated on binary classification objective.",
+            limitation: "Trained on specific news dataset domain.",
           };
           const modelMetrics = metrics[m.name];
 
@@ -1217,28 +1297,26 @@ function ModelRegistryView({
                   <h3>{m.name.toUpperCase()} Architecture</h3>
                   <p>{m.description}</p>
                 </div>
-                <span className={`model-status-indicator ${m.available ? "ready" : "unready"}`}>
-                  {m.available ? "Artifacts Active" : "Not Trained"}
-                </span>
+                <div className={`model-status-indicator ${m.available ? "ready" : "unready"}`}>
+                  {m.available ? "Active" : "Uninitialized"}
+                </div>
               </div>
 
               <div className="registry-details-grid">
                 <div className="registry-detail-row">
-                  <span>Layer Configuration</span>
-                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--cyan-light)" }}>
-                    {spec.arch}
-                  </p>
+                  <span>Topology</span>
+                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem" }}>{spec.arch}</p>
                 </div>
                 <div className="registry-detail-row">
                   <span>Parameter Count</span>
-                  <p>{numFmt(modelMetrics?.parameter_count ?? m.parameter_count) ?? spec.params}</p>
+                  <p>{m.parameter_count ? `${numFmt(m.parameter_count)} trainable parameters` : spec.params}</p>
                 </div>
                 <div className="registry-detail-row">
-                  <span>Key Architectural Advantage</span>
+                  <span>Primary Advantage</span>
                   <p>{spec.advantage}</p>
                 </div>
                 <div className="registry-detail-row">
-                  <span>Main Limitation</span>
+                  <span>Known Limitation</span>
                   <p>{spec.limitation}</p>
                 </div>
               </div>
@@ -1275,9 +1353,11 @@ function ModelRegistryView({
 function PerformanceView({
   metrics,
   experiments,
+  theme,
 }: {
   metrics: Record<string, Metrics>;
   experiments: ExperimentCurves;
+  theme: "light" | "dark";
 }) {
   const chartData = Object.entries(metrics).map(([name, m]) => ({
     name: name.toUpperCase(),
@@ -1292,11 +1372,13 @@ function PerformanceView({
   );
 
   const activeModelMetrics = metrics[selectedModelKey] ?? Object.values(metrics)[0];
+  const gridStroke = theme === "light" ? "#e2e8f0" : "#1e293b";
+  const axisStroke = theme === "light" ? "#64748b" : "#94a3b8";
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "36px" }}>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "var(--text-white)", marginBottom: "12px" }}>
           Model Performance & Evaluation
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
@@ -1315,7 +1397,7 @@ function PerformanceView({
           <div className="card-panel" style={{ marginBottom: "24px" }}>
             <div className="panel-header">
               <div className="panel-header-title">
-                <BarChart3 size={20} color="var(--cyan-light)" />
+                <BarChart3 size={20} color="var(--blue-primary)" />
                 <div>
                   <h2>Held-Out Test Set Performance Comparison</h2>
                   <p>Evaluated on untouched test partition with balanced classes.</p>
@@ -1326,33 +1408,39 @@ function PerformanceView({
             <div style={{ height: "300px", width: "100%", marginTop: "16px" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                  <CartesianGrid stroke="#1e293b" vertical={false} />
-                  <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
-                  <YAxis domain={[0, 100]} stroke="#64748b" tickFormatter={(v) => `${v}%`} tickLine={false} axisLine={false} />
+                  <CartesianGrid stroke={gridStroke} vertical={false} />
+                  <XAxis dataKey="name" stroke={axisStroke} tickLine={false} axisLine={false} />
+                  <YAxis domain={[0, 100]} stroke={axisStroke} tickFormatter={(v) => `${v}%`} tickLine={false} axisLine={false} />
                   <Tooltip
-                    contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "10px", color: "#fff" }}
+                    contentStyle={{
+                      background: "var(--bg-panel)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "10px",
+                      color: "var(--text-white)",
+                      boxShadow: "var(--shadow-md)"
+                    }}
                     formatter={(val, name) => [`${val}%`, name]}
                   />
-                  <Bar dataKey="Accuracy" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Precision" fill="#06b6d4" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Recall" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="F1" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Accuracy" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Precision" fill="#0284c7" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Recall" fill="#059669" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="F1" fill="#d97706" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             <div style={{ display: "flex", gap: "20px", justifyContent: "center", marginTop: "16px", fontSize: "0.76rem" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#93c5fd" }}>
-                <span style={{ width: "10px", height: "10px", background: "#3b82f6", borderRadius: "2px" }} /> Accuracy
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <span style={{ width: "10px", height: "10px", background: "#2563eb", borderRadius: "2px" }} /> Accuracy
               </span>
-              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#67e8f9" }}>
-                <span style={{ width: "10px", height: "10px", background: "#06b6d4", borderRadius: "2px" }} /> Precision
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <span style={{ width: "10px", height: "10px", background: "#0284c7", borderRadius: "2px" }} /> Precision
               </span>
-              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#6ee7b7" }}>
-                <span style={{ width: "10px", height: "10px", background: "#10b981", borderRadius: "2px" }} /> Recall
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <span style={{ width: "10px", height: "10px", background: "#059669", borderRadius: "2px" }} /> Recall
               </span>
-              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#fde68a" }}>
-                <span style={{ width: "10px", height: "10px", background: "#f59e0b", borderRadius: "2px" }} /> F1 Score
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <span style={{ width: "10px", height: "10px", background: "#d97706", borderRadius: "2px" }} /> F1 Score
               </span>
             </div>
           </div>
@@ -1361,7 +1449,7 @@ function PerformanceView({
           <div className="card-panel" style={{ marginBottom: "24px" }}>
             <div className="panel-header">
               <div className="panel-header-title">
-                <Brain size={20} color="var(--cyan-light)" />
+                <Brain size={20} color="var(--blue-primary)" />
                 <div>
                   <h2>Training Curves & Confusion Matrix</h2>
                   <p>Select model to inspect loss/accuracy progression and classification matrix.</p>
@@ -1383,7 +1471,7 @@ function PerformanceView({
             {/* Per-epoch curves */}
             {activeModelMetrics?.history && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px", marginTop: "16px" }}>
-                <div style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
                   <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
                     Accuracy Over Epochs
                   </span>
@@ -1396,18 +1484,26 @@ function PerformanceView({
                           Validation: +((activeModelMetrics.history?.val_accuracy?.[i] ?? 0) * 100).toFixed(1),
                         }))}
                       >
-                        <CartesianGrid stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
-                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
-                        <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
-                        <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="Validation" stroke="#10b981" strokeWidth={2} dot={false} />
+                        <CartesianGrid stroke={gridStroke} vertical={false} />
+                        <XAxis dataKey="epoch" stroke={axisStroke} tickLine={false} axisLine={false} fontSize={11} />
+                        <YAxis stroke={axisStroke} tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--bg-panel)",
+                            border: "1px solid var(--border-subtle)",
+                            borderRadius: "8px",
+                            color: "var(--text-white)",
+                            boxShadow: "var(--shadow-md)"
+                          }}
+                        />
+                        <Line type="monotone" dataKey="Train" stroke="#2563eb" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="Validation" stroke="#059669" strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
-                <div style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
                   <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
                     Loss Over Epochs
                   </span>
@@ -1420,12 +1516,20 @@ function PerformanceView({
                           Validation: +((activeModelMetrics.history?.val_loss?.[i] ?? 0)).toFixed(3),
                         }))}
                       >
-                        <CartesianGrid stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
-                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
-                        <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
-                        <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="Validation" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                        <CartesianGrid stroke={gridStroke} vertical={false} />
+                        <XAxis dataKey="epoch" stroke={axisStroke} tickLine={false} axisLine={false} fontSize={11} />
+                        <YAxis stroke={axisStroke} tickLine={false} axisLine={false} fontSize={11} />
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--bg-panel)",
+                            border: "1px solid var(--border-subtle)",
+                            borderRadius: "8px",
+                            color: "var(--text-white)",
+                            boxShadow: "var(--shadow-md)"
+                          }}
+                        />
+                        <Line type="monotone" dataKey="Train" stroke="#2563eb" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="Validation" stroke="#e11d48" strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -1435,7 +1539,7 @@ function PerformanceView({
 
             {/* Confusion Matrix Display */}
             {activeModelMetrics?.confusion_matrix && (
-              <div style={{ marginTop: "24px", padding: "18px", background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px" }}>
+              <div style={{ marginTop: "24px", padding: "18px", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "10px" }}>
                 <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", display: "block", marginBottom: "14px" }}>
                   Confusion Matrix (Held-out Test Split: Actual Rows vs Predicted Columns)
                 </span>
@@ -1445,18 +1549,18 @@ function PerformanceView({
                   <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem" }}>Pred REAL</b>
 
                   <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem", textAlign: "right", paddingRight: "10px" }}>Act FAKE</b>
-                  <div style={{ background: "rgba(16, 185, 129, 0.2)", border: "1px solid var(--real-border)", color: "#a7f3d0", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                  <div style={{ background: "var(--real-bg)", border: "1px solid var(--real-border)", color: "var(--real-green-light)", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
                     {activeModelMetrics.confusion_matrix[0]?.[0]}
                   </div>
-                  <div style={{ background: "rgba(244, 63, 94, 0.2)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                  <div style={{ background: "var(--fake-bg)", border: "1px solid var(--fake-border)", color: "var(--fake-rose-light)", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
                     {activeModelMetrics.confusion_matrix[0]?.[1]}
                   </div>
 
                   <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem", textAlign: "right", paddingRight: "10px" }}>Act REAL</b>
-                  <div style={{ background: "rgba(244, 63, 94, 0.2)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                  <div style={{ background: "var(--fake-bg)", border: "1px solid var(--fake-border)", color: "var(--fake-rose-light)", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
                     {activeModelMetrics.confusion_matrix[1]?.[0]}
                   </div>
-                  <div style={{ background: "rgba(16, 185, 129, 0.2)", border: "1px solid var(--real-border)", color: "#a7f3d0", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                  <div style={{ background: "var(--real-bg)", border: "1px solid var(--real-border)", color: "var(--real-green-light)", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
                     {activeModelMetrics.confusion_matrix[1]?.[1]}
                   </div>
                 </div>
@@ -1469,7 +1573,7 @@ function PerformanceView({
             <div className="card-panel">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <Terminal size={20} color="var(--cyan-light)" />
+                  <Terminal size={20} color="var(--blue-primary)" />
                   <div>
                     <h2>Underfitting vs. Overfitting Diagnostic Experiments</h2>
                     <p>Controlled experiments demonstrating bias-variance tradeoffs in text classifiers.</p>
@@ -1479,8 +1583,8 @@ function PerformanceView({
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px", marginTop: "16px" }}>
                 {Object.entries(experiments).map(([name, expData]) => (
-                  <div key={name} style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
-                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fff", textTransform: "uppercase" }}>
+                  <div key={name} style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-white)", textTransform: "uppercase" }}>
                       {name.toUpperCase()} Architecture Experiment
                     </span>
                     <div style={{ height: "180px", marginTop: "10px" }}>
@@ -1492,12 +1596,20 @@ function PerformanceView({
                             Validation: +((expData.val_loss?.[i] ?? 0)).toFixed(3),
                           }))}
                         >
-                          <CartesianGrid stroke="#1e293b" vertical={false} />
-                          <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={10} />
-                          <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={10} />
-                          <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
-                          <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="Validation" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                          <CartesianGrid stroke={gridStroke} vertical={false} />
+                          <XAxis dataKey="epoch" stroke={axisStroke} tickLine={false} axisLine={false} fontSize={10} />
+                          <YAxis stroke={axisStroke} tickLine={false} axisLine={false} fontSize={10} />
+                          <Tooltip
+                            contentStyle={{
+                              background: "var(--bg-panel)",
+                              border: "1px solid var(--border-subtle)",
+                              borderRadius: "8px",
+                              color: "var(--text-white)",
+                              boxShadow: "var(--shadow-md)"
+                            }}
+                          />
+                          <Line type="monotone" dataKey="Train" stroke="#2563eb" strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="Validation" stroke="#d97706" strokeWidth={2} dot={false} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -1519,7 +1631,7 @@ function AboutView() {
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
       <div style={{ textAlign: "center", marginBottom: "36px" }}>
-        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "var(--text-white)", marginBottom: "12px" }}>
           About Veritas AI
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
@@ -1531,7 +1643,7 @@ function AboutView() {
         <div className="card-panel">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
             <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Search size={16} /></div>
-            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Problem Statement</h3>
+            <h3 style={{ fontSize: "1.05rem", color: "var(--text-white)" }}>Problem Statement</h3>
           </div>
           <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
             Digital misinformation spreads rapidly across online communications. This platform studies how deep neural networks process semantic patterns in headlines and news text, comparing different sequence architectures on empirical benchmarks.
@@ -1541,7 +1653,7 @@ function AboutView() {
         <div className="card-panel">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
             <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Sparkles size={16} /></div>
-            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Explainability First</h3>
+            <h3 style={{ fontSize: "1.05rem", color: "var(--text-white)" }}>Explainability First</h3>
           </div>
           <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
             Rather than serving as an opaque black box, Veritas AI treats transparency as a first-class feature. Using LIME local perturbations, every prediction provides exact word contributions and plain-English narrative summaries.
@@ -1551,7 +1663,7 @@ function AboutView() {
         <div className="card-panel">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
             <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Cpu size={16} /></div>
-            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Technology Stack</h3>
+            <h3 style={{ fontSize: "1.05rem", color: "var(--text-white)" }}>Technology Stack</h3>
           </div>
           <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
             Built using Python, FastAPI, TensorFlow/Keras, Scikit-Learn, and LIME on the backend. Frontend crafted with React 18, TypeScript, Recharts, and custom Vanilla CSS design tokens.
