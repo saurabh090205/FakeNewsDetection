@@ -1,0 +1,13 @@
+{
+  "class_to_index": {
+    "FAKE": 0,
+    "REAL": 1
+  },
+  "index_to_class": {
+    "0": "FAKE",
+    "1": "REAL"
+  },
+  "sigmoid_positive_label": "REAL",
+  "sequence_length": 500,
+  "minimum_article_words": 50
+}

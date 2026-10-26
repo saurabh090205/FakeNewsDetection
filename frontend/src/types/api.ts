@@ -15,13 +15,33 @@ export interface Prediction {
   fake_probability: number;
   model: string;
   explanation_note: string;
+  predicted_label_display?: string;
+  article_words?: number;
+  article_chars?: number;
+  cleaned_text_preview?: string;
+  timestamp?: string;
+}
+
+export interface WordContribution {
+  word: string;
+  weight: number;
+  direction?: "supports" | "opposes";
+  abs_weight?: number;
 }
 
 export interface Explanation {
   model: string;
   prediction: string;
-  words: Array<{ word: string; weight: number }>;
+  prediction_label?: string;
+  confidence?: number;
+  words: WordContribution[];
+  positive_words?: WordContribution[];
+  negative_words?: WordContribution[];
+  plain_english_summary?: string;
   note: string;
+  methodology?: string;
+  cached?: boolean;
+  execution_time_ms?: number;
 }
 
 export interface Metrics {
@@ -53,3 +73,14 @@ export interface ApiError {
   error: string;
   code: string;
 }
+
+export interface AnalysisHistoryItem {
+  id: string;
+  headline: string;
+  article: string;
+  model: ModelName;
+  prediction: Prediction;
+  explanation: Explanation | null;
+  timestamp: string;
+}
+

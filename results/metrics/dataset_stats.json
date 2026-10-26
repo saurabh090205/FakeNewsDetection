@@ -1,0 +1,37 @@
+{
+  "total": 240,
+  "removed_empty_or_duplicate": 0,
+  "real_count": 120,
+  "fake_count": 120,
+  "missing_values": 0,
+  "duplicates": 0,
+  "class_distribution": {
+    "FAKE": 120,
+    "REAL": 120
+  },
+  "article_length_words": {
+    "count": 240.0,
+    "mean": 92.97916666666667,
+    "std": 7.936699311134925,
+    "min": 81.0,
+    "25%": 85.75,
+    "50%": 94.0,
+    "75%": 98.0,
+    "max": 106.0
+  },
+  "headline_length_words": {
+    "count": 240.0,
+    "mean": 11.083333333333334,
+    "std": 1.1897985718440176,
+    "min": 9.0,
+    "25%": 11.0,
+    "50%": 11.0,
+    "75%": 11.0,
+    "max": 14.0
+  },
+  "split_counts": {
+    "train": 168,
+    "test": 36,
+    "validation": 36
+  }
+}

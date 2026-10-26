@@ -14,12 +14,17 @@ data/raw/*
 /Real.csv
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/*.json
 models/*
 !models/.gitkeep
+!models/*/tokenizer.json
 results/bert_checkpoints/
 results/metrics/*
 !results/metrics/.gitkeep
+!results/metrics/*.json
 results/plots/*
 !results/plots/.gitkeep
 results/confusion_matrices/*
 !results/confusion_matrices/.gitkeep
+scratch/
+

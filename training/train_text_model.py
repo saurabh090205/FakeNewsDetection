@@ -10,8 +10,12 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 
-from data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
-from settings import BATCH_SIZE, DENSE_UNITS, DROPOUT, EMBEDDING_DIMENSION, EPOCHS, MAX_VOCABULARY, RECURRENT_UNITS, ROOT, SEQUENCE_LENGTH, SEED
+try:
+    from data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
+    from settings import BATCH_SIZE, DENSE_UNITS, DROPOUT, EMBEDDING_DIMENSION, EPOCHS, MAX_VOCABULARY, RECURRENT_UNITS, ROOT, SEQUENCE_LENGTH, SEED
+except ModuleNotFoundError:
+    from training.data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
+    from training.settings import BATCH_SIZE, DENSE_UNITS, DROPOUT, EMBEDDING_DIMENSION, EPOCHS, MAX_VOCABULARY, RECURRENT_UNITS, ROOT, SEQUENCE_LENGTH, SEED
 
 
 def train(model_name: str):

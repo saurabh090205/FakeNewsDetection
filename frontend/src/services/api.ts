@@ -21,6 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health: () => request<{ status: string; platform: string; available_models: number; models: ModelInfo[] }>("/health"),
   models: () => request<{ models: ModelInfo[]; minimum_article_words: number }>("/models"),
   metrics: () => request<{ models: Record<string, Metrics>; comparison: Record<string, unknown> | null; experiments: ExperimentCurves | null }>("/metrics"),
   dataset: () => request<DatasetStats>("/dataset/statistics"),

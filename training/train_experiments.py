@@ -5,8 +5,12 @@ from pathlib import Path
 import pandas as pd
 import tensorflow as tf
 
-from data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
-from settings import BATCH_SIZE, MAX_VOCABULARY, SEQUENCE_LENGTH
+try:
+    from data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
+    from settings import BATCH_SIZE, MAX_VOCABULARY, SEQUENCE_LENGTH
+except ModuleNotFoundError:
+    from training.data_pipeline import METRICS_DIR, PROCESSED_DIR, prepare_dataset
+    from training.settings import BATCH_SIZE, MAX_VOCABULARY, SEQUENCE_LENGTH
 
 
 def main():

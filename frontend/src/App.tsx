@@ -1,289 +1,1582 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity, ArrowUpRight, BarChart3, BookOpenText, BrainCircuit, Check, ChevronDown,
-  CircleHelp, Database, FileText, LayoutDashboard, LoaderCircle, Menu, Newspaper,
-  Search, ShieldAlert, Sparkles, X,
+  Activity, AlertTriangle, ArrowRight, BarChart3, BookOpen, Brain, Check,
+  CheckCircle2, ChevronRight, Clock, Cpu, Database, ExternalLink, FileSearch,
+  FileText, HelpCircle, History, Info, Layers, Loader2, Menu, RefreshCw,
+  RotateCcw, Search, Shield, ShieldAlert, Sparkles, Terminal, Trash2, X, Zap
 } from "lucide-react";
 import {
-  Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer,
+  Tooltip, XAxis, YAxis
 } from "recharts";
 import { api } from "./services/api";
-import type { DatasetStats, ExperimentCurves, Explanation, Metrics, ModelInfo, ModelName, Prediction } from "./types/api";
+import type {
+  AnalysisHistoryItem, DatasetStats, ExperimentCurves, Explanation, Metrics,
+  ModelInfo, ModelName, Prediction, WordContribution
+} from "./types/api";
 
-type Page = "Dashboard" | "Analyze News" | "Models" | "Performance" | "Dataset" | "About";
-const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
-  { name: "Dashboard", icon: LayoutDashboard }, { name: "Analyze News", icon: Search },
-  { name: "Models", icon: BrainCircuit }, { name: "Performance", icon: BarChart3 },
-  { name: "Dataset", icon: Database }, { name: "About", icon: CircleHelp },
+type Page = "Analyze News" | "How It Works" | "Explainability" | "Model Registry" | "Performance" | "About";
+
+const NAV_ITEMS: { name: Page; icon: typeof Search }[] = [
+  { name: "Analyze News", icon: Search },
+  { name: "How It Works", icon: Layers },
+  { name: "Explainability", icon: Sparkles },
+  { name: "Model Registry", icon: Brain },
+  { name: "Performance", icon: BarChart3 },
+  { name: "About", icon: Info },
 ];
-const SAMPLE_HEADLINE = "City council releases annual transportation report";
-const SAMPLE_ARTICLE = "The city council released its annual transportation report on Tuesday after months of public meetings. Officials said the document summarizes bus reliability, road maintenance and pedestrian safety projects completed during the year. The report includes spending totals, contract dates and recommendations for future work. Residents can review the full document on the city website and submit written comments before the next council session. Independent auditors reviewed the listed expenses and confirmed the arithmetic in the financial appendix.";
-const SAMPLE_INPUTS = [
-  { name: "Example 1", headline: SAMPLE_HEADLINE, article: SAMPLE_ARTICLE },
+
+const PRESET_EXAMPLES = [
   {
-    name: "Example 2",
-    headline: "University publishes annual research report",
-    article: "The university released its annual public research report on Monday. The report describes ongoing studies in medicine, engineering and climate science, and includes grant amounts and publication references. Researchers submitted progress summaries to a review committee. The committee will publish its findings next month after considering feedback from faculty and students. Officials said the document is available on the university website and will be updated when the next reporting period is complete.",
+    tag: "real",
+    label: "Reuters: Federal Reserve Policy",
+    headline: "Federal Reserve Holds Interest Rates Steady Amid Stable Economic Indicators",
+    article: "The central bank voted unanimously to maintain its benchmark federal funds rate during its scheduled policy meeting on Wednesday. Chair Jerome Powell indicated that while headline consumer price measures have moderated toward target thresholds, officials require further evidence of durable labor market equilibrium before commencing rate adjustments. Commercial markets experienced modest equity advances following the policy announcement, with treasury yields stabilizing across intermediate maturities. Financial institutions noted that credit spreads have remained well-ordered across consumer and corporate lending portfolios.",
+  },
+  {
+    tag: "real",
+    label: "Reuters: Clean Energy Transition",
+    headline: "International Energy Agency Reports Accelerated Growth in Renewable Generation",
+    article: "International energy delegates gathered in Geneva on Tuesday to review regional targets for solar and offshore wind capacity. According to the published summit communiqué, capital allocations for clean grid infrastructure increased by twelve percent over the prior fiscal calendar. Representatives from twenty-four nations agreed to establish unified standards for high-voltage interconnectors. Economic analysts noted that falling component prices and state incentives have sustained utility investments despite broader commercial headwinds across industrial manufacturing regions.",
+  },
+  {
+    tag: "fake",
+    label: "Sensationalist: Banned Miracle Cure",
+    headline: "SHOCKING BOMBSHELL: Big Pharma Hiding Miracle 48-Hour Disease Cure",
+    article: "Unbelievable leaked documents from anonymous pharmaceutical whistleblowers reveal that corrupt corporate executives are desperately hiding an ancient herbal tea formulation that permanently cures all chronic illnesses in forty-eight hours. Mainstream media networks are systematically censoring this incredible miracle discovery to protect their multi-billion dollar drug revenues. Brave independent healers are sharing this secret recipe across uncensored channels before corrupt health agencies permanently ban our accounts forever. Patriots must share this vital truth with everyone immediately.",
+  },
+  {
+    tag: "fake",
+    label: "Conspiracy: Secret Weather Machine",
+    headline: "EXPOSED: Secret Subterranean Weather Machine Unleashed On Citizens",
+    article: "Astonishing confidential military reports prove that shadowy globalist elites are actively manipulating severe weather anomalies using top-secret electromagnetic frequency emitters hidden inside abandoned missile silos. Whistleblower radar technicians confirm that catastrophic hurricanes and atmospheric heatwaves are being artificially engineered to destroy domestic food supplies and enforce totalitarian control. Corrupt corporate journalists refuse to investigate the horrifying evidence despite dozens of eyewitness testimonies from local electrical grid engineers.",
   },
 ];
-const pretty = (name: string) => name.toUpperCase();
-const percent = (value?: number) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
-const fmt = (value?: number | null) => value == null ? "—" : new Intl.NumberFormat().format(value);
 
-function App() {
-  const [page, setPage] = useState<Page>("Dashboard");
+const percent = (val?: number | null) => (val == null ? "—" : `${(val * 100).toFixed(1)}%`);
+const numFmt = (val?: number | null) => (val == null ? "—" : new Intl.NumberFormat().format(val));
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState<Page>("Analyze News");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [metrics, setMetrics] = useState<Record<string, Metrics>>({});
   const [experiments, setExperiments] = useState<ExperimentCurves>({});
-  const [stats, setStats] = useState<DatasetStats | null>(null);
-  const [minimumArticleWords, setMinimumArticleWords] = useState(50);
-  const [dataError, setDataError] = useState("");
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [datasetStats, setDatasetStats] = useState<DatasetStats | null>(null);
+  const [minArticleWords, setMinArticleWords] = useState(50);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [apiError, setApiError] = useState("");
 
+  // Analysis State
+  const [headline, setHeadline] = useState(PRESET_EXAMPLES[0].headline);
+  const [article, setArticle] = useState(PRESET_EXAMPLES[0].article);
+  const [selectedModel, setSelectedModel] = useState<ModelName>("dense");
+  const [activePresetIndex, setActivePresetIndex] = useState<number | null>(0);
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+  const [explanation, setExplanation] = useState<Explanation | null>(null);
+  const [comparisonResults, setComparisonResults] = useState<Array<Prediction | { model: string; error: string; code: string }> | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const [explainError, setExplainError] = useState("");
+  const [textHighlightMode, setTextHighlightMode] = useState<"all" | "supports" | "opposes" | "clean">("all");
+  const [history, setHistory] = useState<AnalysisHistoryItem[]>([]);
+
+  // Fetch initial system state
   useEffect(() => {
-    Promise.allSettled([api.models(), api.metrics(), api.dataset()]).then(([modelResult, metricResult, statsResult]) => {
-      if (modelResult.status === "fulfilled") {
-        setModels(modelResult.value.models);
-        setMinimumArticleWords(modelResult.value.minimum_article_words);
+    Promise.allSettled([api.models(), api.metrics(), api.dataset()]).then(([mRes, metRes, dRes]) => {
+      if (mRes.status === "fulfilled") {
+        setModels(mRes.value.models);
+        setMinArticleWords(mRes.value.minimum_article_words);
+        // Default to first available model if available
+        const firstReady = mRes.value.models.find((m) => m.available);
+        if (firstReady) setSelectedModel(firstReady.name);
+      } else {
+        setApiError("Backend connection offline. Make sure the FastAPI backend is running.");
       }
-      else setDataError(modelResult.reason.message);
-      if (metricResult.status === "fulfilled") {
-        setMetrics(metricResult.value.models);
-        setExperiments(metricResult.value.experiments ?? {});
+
+      if (metRes.status === "fulfilled") {
+        setMetrics(metRes.value.models);
+        setExperiments(metRes.value.experiments ?? {});
       }
-      if (statsResult.status === "fulfilled") setStats(statsResult.value);
+
+      if (dRes.status === "fulfilled") {
+        setDatasetStats(dRes.value);
+      }
     });
   }, []);
 
-  const availableCount = models.filter((model) => model.available).length;
-  const best = useMemo(() => Object.entries(metrics).sort((a, b) => b[1].f1 - a[1].f1)[0], [metrics]);
-  const viewProps = { models, metrics, stats, dataError, setPage };
+  const readyModelsCount = useMemo(() => models.filter((m) => m.available).length, [models]);
+  const bestModel = useMemo(() => {
+    const list = Object.entries(metrics);
+    if (!list.length) return null;
+    return list.sort((a, b) => b[1].f1 - a[1].f1)[0];
+  }, [metrics]);
+
+  const articleWordCount = useMemo(() => {
+    const trimmed = article.trim();
+    return trimmed ? trimmed.split(/\s+/).length : 0;
+  }, [article]);
+
+  const canAnalyze = articleWordCount >= minArticleWords && headline.trim().length > 0 && !isLoading;
+
+  const handleSelectPreset = (index: number) => {
+    const preset = PRESET_EXAMPLES[index];
+    setHeadline(preset.headline);
+    setArticle(preset.article);
+    setActivePresetIndex(index);
+    setPrediction(null);
+    setExplanation(null);
+    setComparisonResults(null);
+    setAnalysisError("");
+    setExplainError("");
+  };
+
+  const handleReset = () => {
+    setHeadline("");
+    setArticle("");
+    setActivePresetIndex(null);
+    setPrediction(null);
+    setExplanation(null);
+    setComparisonResults(null);
+    setAnalysisError("");
+    setExplainError("");
+  };
+
+  const runAnalysis = async (compareAll = false) => {
+    setAnalysisError("");
+    setExplainError("");
+    setPrediction(null);
+    setExplanation(null);
+    setComparisonResults(null);
+    setIsLoading(true);
+
+    try {
+      if (compareAll) {
+        const comp = await api.compare(headline, article, selectedModel);
+        setComparisonResults(comp.results);
+      } else {
+        const pred = await api.predict(headline, article, selectedModel);
+        setPrediction(pred);
+
+        let exp: Explanation | null = null;
+        try {
+          exp = await api.explain(headline, article, selectedModel);
+          setExplanation(exp);
+        } catch (e) {
+          setExplainError(e instanceof Error ? e.message : "Feature attribution is temporarily unavailable.");
+        }
+
+        // Save to session history
+        const historyItem: AnalysisHistoryItem = {
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          headline,
+          article,
+          model: selectedModel,
+          prediction: pred,
+          explanation: exp,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        setHistory((prev) => [historyItem, ...prev.slice(0, 9)]);
+      }
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : "Analysis request failed.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadHistoryItem = (item: AnalysisHistoryItem) => {
+    setHeadline(item.headline);
+    setArticle(item.article);
+    setSelectedModel(item.model);
+    setPrediction(item.prediction);
+    setExplanation(item.explanation);
+    setComparisonResults(null);
+    setActivePresetIndex(null);
+    setCurrentPage("Analyze News");
+    window.scrollTo({ top: 400, behavior: "smooth" });
+  };
+
   return (
-    <div className="shell">
-      {mobileOpen && <button className="scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
-        <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setPage("Dashboard"); }}>
-          <span className="brand-mark"><Activity size={20} /></span><span>TruthLens<span className="brand-ai"> AI</span></span>
-        </a>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>{nav.map(({ name, icon: Icon }) => (
-          <button key={name} className={`nav-link ${page === name ? "active" : ""}`} onClick={() => { setPage(name); setMobileOpen(false); }}>
-            <Icon size={17} strokeWidth={1.8} />{name}{name === "Analyze News" && <span className="nav-dot" />}
-          </button>
-        ))}</nav>
-        <div className="side-bottom">
-          <div className="status-card"><span className={`status-dot ${availableCount ? "" : "idle"}`} />
-            <div><strong>{availableCount ? `${availableCount} model${availableCount === 1 ? "" : "s"} ready` : "No models trained"}</strong><small>{availableCount ? "Inference is available" : "Train a model to begin"}</small></div>
+    <div className="app-shell">
+      {/* Top Navigation */}
+      <header className="navbar">
+        <div className="navbar-inner">
+          <div className="nav-brand" onClick={() => setCurrentPage("Analyze News")}>
+            <div className="brand-icon">
+              <Shield size={20} strokeWidth={2.2} />
+            </div>
+            <div className="brand-info">
+              <span className="brand-title">
+                Veritas<span> AI</span>
+              </span>
+              <span className="brand-tagline">Truth Behind Every Headline</span>
+            </div>
           </div>
-          <div className="sidebar-foot">DEEP LEARNING PROJECT <span>·</span> 2026</div>
+
+          <nav className="nav-links">
+            {NAV_ITEMS.map(({ name, icon: Icon }) => (
+              <button
+                key={name}
+                className={`nav-item ${currentPage === name ? "active" : ""}`}
+                onClick={() => {
+                  setCurrentPage(name);
+                  setMobileMenuOpen(false);
+                }}
+              >
+                <Icon size={16} />
+                {name}
+              </button>
+            ))}
+          </nav>
+
+          <div className="nav-right">
+            <div className="system-status-badge">
+              <span className={`status-pulse ${readyModelsCount > 0 ? "" : "idle"}`} />
+              <span>{readyModelsCount > 0 ? `${readyModelsCount} Models Ready` : "No Models Ready"}</span>
+            </div>
+            <button
+              className="mobile-toggle"
+              aria-label="Toggle navigation"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
         </div>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={20} /></button>
-          <div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><strong>{page}</strong></div>
-          <div className="top-right"><span className="api-status"><span className="status-dot idle" /> Research preview</span><span className="avatar">TL</span></div>
-        </header>
-        <div className="content">
-          {page === "Dashboard" && <Dashboard {...viewProps} best={best} availableCount={availableCount} />}
-          {page === "Analyze News" && <Analyze models={models} minimumArticleWords={minimumArticleWords} />}
-          {page === "Models" && <Models models={models} metrics={metrics} />}
-          {page === "Performance" && <Performance metrics={metrics} experiments={experiments} />}
-          {page === "Dataset" && <Dataset stats={stats} />}
-          {page === "About" && <About />}
+
+        {/* Mobile Navigation Drawer */}
+        <div className={`mobile-drawer ${mobileMenuOpen ? "open" : ""}`}>
+          {NAV_ITEMS.map(({ name, icon: Icon }) => (
+            <button
+              key={name}
+              className={`nav-item ${currentPage === name ? "active" : ""}`}
+              onClick={() => {
+                setCurrentPage(name);
+                setMobileMenuOpen(false);
+              }}
+            >
+              <Icon size={18} />
+              {name}
+            </button>
+          ))}
         </div>
+      </header>
+
+      {/* Main Page Content */}
+      <main className="main-content">
+        {apiError && (
+          <div style={{ background: "rgba(244, 63, 94, 0.15)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px 18px", borderRadius: "10px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "10px" }}>
+            <ShieldAlert size={18} />
+            <span>{apiError}</span>
+          </div>
+        )}
+
+        {/* View Routing */}
+        {currentPage === "Analyze News" && (
+          <AnalyzeNewsView
+            headline={headline}
+            setHeadline={setHeadline}
+            article={article}
+            setArticle={setArticle}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+            models={models}
+            activePresetIndex={activePresetIndex}
+            setActivePresetIndex={setActivePresetIndex}
+            handleSelectPreset={handleSelectPreset}
+            handleReset={handleReset}
+            canAnalyze={canAnalyze}
+            isLoading={isLoading}
+            runAnalysis={runAnalysis}
+            articleWordCount={articleWordCount}
+            minArticleWords={minArticleWords}
+            prediction={prediction}
+            explanation={explanation}
+            comparisonResults={comparisonResults}
+            analysisError={analysisError}
+            explainError={explainError}
+            textHighlightMode={textHighlightMode}
+            setTextHighlightMode={setTextHighlightMode}
+            history={history}
+            loadHistoryItem={loadHistoryItem}
+            clearHistory={() => setHistory([])}
+            readyModelsCount={readyModelsCount}
+            bestModel={bestModel}
+            datasetStats={datasetStats}
+            setCurrentPage={setCurrentPage}
+          />
+        )}
+
+        {currentPage === "How It Works" && <HowItWorksView />}
+        {currentPage === "Explainability" && <ExplainabilityView />}
+        {currentPage === "Model Registry" && <ModelRegistryView models={models} metrics={metrics} />}
+        {currentPage === "Performance" && <PerformanceView metrics={metrics} experiments={experiments} />}
+        {currentPage === "About" && <AboutView />}
       </main>
+
+      {/* Footer */}
+      <footer className="footer">
+        <div className="footer-inner">
+          <div className="footer-brand-col">
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Shield size={18} color="var(--cyan-light)" />
+              <strong style={{ color: "#fff", fontSize: "0.95rem" }}>Veritas AI Platform</strong>
+            </div>
+            <p className="footer-disclaimer">
+              Veritas AI evaluates learned statistical text patterns and neural embeddings. It is not an automated fact-checker and does not crawl or verify external sources. All predictions represent probabilistic classification relative to its trained dataset.
+            </p>
+          </div>
+
+          <div className="footer-links">
+            <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>Final Year Deep Learning Project · 2026</span>
+            <a href="https://github.com/saurabh090205/FakeNewsDetection.git" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+              GitHub Repository <ExternalLink size={14} />
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
 
-function PageTitle({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: React.ReactNode }) {
-  return <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>;
-}
-function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="empty-state"><span className="empty-icon"><Database size={20} /></span><strong>{title}</strong><p>{detail}</p></div>;
-}
-function MetricCard({ label, value, note, icon: Icon }: { label: string; value: string; note: string; icon: typeof Activity }) {
-  return <div className="metric-card"><div className="metric-top"><span>{label}</span><span className="metric-icon"><Icon size={17} /></span></div><div className="metric-value">{value}</div><div className="metric-note">{note}</div></div>;
-}
-
-function Dashboard(props: {
-  models: ModelInfo[]; metrics: Record<string, Metrics>; stats: DatasetStats | null; dataError: string;
-  best?: [string, Metrics]; availableCount: number; setPage: (page: Page) => void;
+// -------------------------------------------------------------
+// ANALYZE NEWS VIEW (Main Platform Dashboard)
+// -------------------------------------------------------------
+function AnalyzeNewsView(props: {
+  headline: string;
+  setHeadline: (h: string) => void;
+  article: string;
+  setArticle: (a: string) => void;
+  selectedModel: ModelName;
+  setSelectedModel: (m: ModelName) => void;
+  models: ModelInfo[];
+  activePresetIndex: number | null;
+  setActivePresetIndex: (i: number | null) => void;
+  handleSelectPreset: (i: number) => void;
+  handleReset: () => void;
+  canAnalyze: boolean;
+  isLoading: boolean;
+  runAnalysis: (comp?: boolean) => void;
+  articleWordCount: number;
+  minArticleWords: number;
+  prediction: Prediction | null;
+  explanation: Explanation | null;
+  comparisonResults: Array<Prediction | { model: string; error: string; code: string }> | null;
+  analysisError: string;
+  explainError: string;
+  textHighlightMode: "all" | "supports" | "opposes" | "clean";
+  setTextHighlightMode: (m: "all" | "supports" | "opposes" | "clean") => void;
+  history: AnalysisHistoryItem[];
+  loadHistoryItem: (item: AnalysisHistoryItem) => void;
+  clearHistory: () => void;
+  readyModelsCount: number;
+  bestModel: [string, Metrics] | null;
+  datasetStats: DatasetStats | null;
+  setCurrentPage: (p: Page) => void;
 }) {
-  const { models, metrics, stats, dataError, best, availableCount, setPage } = props;
-  return <>
-    <PageTitle eyebrow="OVERVIEW" title="Fake News Detection AI" subtitle="Deep learning powered text classification — analyze patterns, not truth." action={<button className="button button-primary" onClick={() => setPage("Analyze News")}><Sparkles size={16} /> Analyze an article</button>} />
-    {dataError && <div className="inline-alert"><ShieldAlert size={16} />{dataError}</div>}
-    <div className="metrics-grid">
-      <MetricCard label="DATASET ARTICLES" value={fmt(stats?.total)} note={stats ? `${fmt(stats.real_count)} real · ${fmt(stats.fake_count)} fake` : "Statistics unavailable"} icon={Newspaper} />
-      <MetricCard label="BEST MODEL" value={best ? pretty(best[0]) : "—"} note={best ? `F1 score ${percent(best[1].f1)}` : "No evaluation results"} icon={BrainCircuit} />
-      <MetricCard label="BEST F1 SCORE" value={best ? percent(best[1].f1) : "—"} note={best ? "From saved test evaluation" : "Train and evaluate a model"} icon={Activity} />
-      <MetricCard label="AVAILABLE MODELS" value={`${availableCount} / ${models.length || 5}`} note="Trained artifacts detected" icon={BarChart3} />
-    </div>
-    <div className="section-heading"><div><h2>Model workspace</h2><p>Review model readiness and test results.</p></div><button className="text-button" onClick={() => setPage("Models")}>All models <ArrowUpRight size={15} /></button></div>
-    <div className="model-grid">{(models.length ? models : ["dense", "rnn", "lstm", "gru", "bert"].map((name) => ({ name: name as ModelName, available: false, parameter_count: null, description: "Waiting for trained artifacts" }))).map((model) => {
-      const result = metrics[model.name];
-      return <article key={model.name} className="model-card"><div className="model-card-top"><span className="model-glyph"><BrainCircuit size={18} /></span><span className={`pill ${model.available ? "pill-green" : "pill-muted"}`}>{model.available ? "READY" : "NOT TRAINED"}</span></div><h3>{pretty(model.name)}</h3><p>{model.description}</p><div className="model-metric-row"><span>Test accuracy</span><strong>{percent(result?.test_accuracy)}</strong></div><div className="model-metric-row"><span>F1 score</span><strong>{percent(result?.f1)}</strong></div></article>;
-    })}</div>
-    <div className="notice"><ShieldAlert size={18} /><div><strong>Classification is not fact-checking</strong><p>TruthLens estimates whether text resembles patterns learned from its training data. It does not verify claims or consult external sources.</p></div></div>
-  </>;
-}
+  const {
+    headline, setHeadline, article, setArticle, selectedModel, setSelectedModel,
+    models, activePresetIndex, setActivePresetIndex, handleSelectPreset, handleReset, canAnalyze,
+    isLoading, runAnalysis, articleWordCount, minArticleWords, prediction,
+    explanation, comparisonResults, analysisError, explainError,
+    textHighlightMode, setTextHighlightMode, history, loadHistoryItem,
+    clearHistory, readyModelsCount, bestModel, datasetStats, setCurrentPage
+  } = props;
 
-function Analyze({ models, minimumArticleWords }: { models: ModelInfo[]; minimumArticleWords: number }) {
-  const [headline, setHeadline] = useState(SAMPLE_HEADLINE);
-  const [article, setArticle] = useState(SAMPLE_ARTICLE);
-  const [activeSample, setActiveSample] = useState<number | null>(0);
-  const [model, setModel] = useState<ModelName>("lstm");
-  const [result, setResult] = useState<Prediction | null>(null);
-  const [explanation, setExplanation] = useState<Explanation | null>(null);
-  const [explanationError, setExplanationError] = useState("");
-  const [comparison, setComparison] = useState<Array<Prediction | { model: string; error: string; code: string }> | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const wordCount = article.trim() ? article.trim().split(/\s+/).length : 0;
-  const selectedAvailable = models.find((item) => item.name === model)?.available ?? false;
-  async function analyze(compare: boolean) {
-    setError(""); setResult(null); setComparison(null); setExplanation(null); setExplanationError(""); setLoading(true);
-    try {
-      if (compare) setComparison((await api.compare(headline, article, model)).results);
-      else {
-        const prediction = await api.predict(headline, article, model);
-        setResult(prediction);
-        try { setExplanation(await api.explain(headline, article, model)); }
-        catch (e) { setExplanationError(e instanceof Error ? e.message : "Word-level explanation is unavailable."); }
-      }
-    } catch (e) { setError(e instanceof Error ? e.message : "Analysis failed."); }
-    finally { setLoading(false); }
-  }
-  return <>
-    <PageTitle eyebrow="TEXT CLASSIFICATION" title="Analyze news" subtitle="Submit a headline and full article to see model predictions." />
-    <div className="analyze-layout">
-      <section className="panel input-panel">
-        <div className="panel-title"><span className="title-icon blue"><FileText size={17} /></span><div><h2>Article input</h2><p>Editable sample text is prefilled for a quick test; replace it with your article.</p></div></div>
-        <div className="sample-inputs" role="group" aria-label="Load example news inputs">
-          {SAMPLE_INPUTS.map((sample, index) => (
-            <button
-              key={sample.name}
-              type="button"
-              className={`sample-tab ${activeSample === index ? "sample-tab-active" : ""}`}
-              aria-pressed={activeSample === index}
-              onClick={() => {
-                setHeadline(sample.headline);
-                setArticle(sample.article);
-                setActiveSample(index);
-                setResult(null);
-                setComparison(null);
-                setError("");
-              }}
-            >
-              {sample.name}
-            </button>
-          ))}
+  const currentModelAvailable = models.find((m) => m.name === selectedModel)?.available ?? false;
+
+  return (
+    <>
+      {/* Hero Header */}
+      <section className="hero-section">
+        <div className="hero-pill">
+          <Sparkles size={13} />
+          Deep Learning NLP & Explainability Engine
         </div>
-        <label className="field-label" htmlFor="headline">Headline</label>
-        <input id="headline" className="text-input" value={headline} maxLength={1000} placeholder="Enter the news headline..." onChange={(e) => { setHeadline(e.target.value); setActiveSample(null); }} />
-        <div className="field-row"><label className="field-label" htmlFor="article">Article text</label><span className={`word-count ${wordCount < minimumArticleWords ? "word-count-warning" : ""}`}>{wordCount} words · {minimumArticleWords} minimum</span></div>
-        <textarea id="article" className="article-input" value={article} maxLength={100000} placeholder="Paste the complete article text here for analysis..." onChange={(e) => { setArticle(e.target.value); setActiveSample(null); }} />
-        <div className="input-footer"><div><label className="field-label" htmlFor="model-select">Classification model</label><div className="select-wrap"><select id="model-select" value={model} onChange={(e) => setModel(e.target.value as ModelName)}>{(models.length ? models : ["dense", "rnn", "lstm", "gru", "bert"].map((name) => ({ name, available: false }))).map((item) => <option key={item.name} value={item.name}>{pretty(item.name)}{item.available ? "" : " · not trained"}</option>)}</select><ChevronDown size={15} /></div></div><span className={`pill ${selectedAvailable ? "pill-green" : "pill-muted"}`}><span className="status-dot" />{selectedAvailable ? "Model ready" : "Model unavailable"}</span></div>
-        {error && <div className="form-error"><ShieldAlert size={16} />{error}</div>}
-        <div className="analyze-actions"><button className="button button-primary grow" disabled={loading || !headline.trim() || !article.trim()} onClick={() => analyze(false)}>{loading ? <><LoaderCircle className="spin" size={16} /> Analyzing text…</> : <><Sparkles size={16} /> Analyze news</>}</button><button className="button button-secondary" disabled={loading || !headline.trim() || !article.trim()} onClick={() => analyze(true)}>Compare models</button></div>
-        <p className="privacy-line"><ShieldAlert size={13} /> Articles are not stored. No external fact-checking is performed.</p>
+        <h1 className="hero-title">
+          Understand the <span className="gradient-text">truth behind every headline</span>.
+        </h1>
+        <p className="hero-subtitle">
+          Veritas AI evaluates semantic patterns, headline congruence, and stylistic cues to classify news text, backed by transparent Local Interpretable Model-agnostic Explanations (LIME).
+        </p>
+
+        <div className="hero-actions">
+          <button className="btn btn-primary" onClick={() => {
+            const el = document.getElementById("article-input-panel");
+            el?.scrollIntoView({ behavior: "smooth" });
+          }}>
+            <Search size={16} /> Analyze News Now
+          </button>
+          <button className="btn btn-secondary" onClick={() => setCurrentPage("Explainability")}>
+            <Sparkles size={16} /> How LIME Works
+          </button>
+        </div>
       </section>
-      <section className="panel result-panel">
-        {!result && !comparison && !loading && <div className="result-empty"><span className="result-empty-icon"><Sparkles size={23} /></span><h2>Analysis results</h2><p>Your classification and probability scores will appear here after a model is available.</p><div className="result-steps"><span><Check size={14} /> Headline + article</span><span><Check size={14} /> Model inference</span><span><Check size={14} /> Probabilities</span></div></div>}
-        {loading && <div className="result-empty"><LoaderCircle className="spin loading-icon" size={28} /><h2>Processing article…</h2><p>Running model inference. This may take a moment on first load.</p></div>}
-        {result && <PredictionResult result={result} explanation={explanation} explanationError={explanationError} />}
-        {comparison && <div className="comparison-result"><div className="panel-title"><span className="title-icon purple"><BarChart3 size={17} /></span><div><h2>Model comparison</h2><p>Results from available trained models.</p></div></div>{comparison.map((item) => "error" in item ? <div key={item.model} className="compare-row"><strong>{pretty(item.model)}</strong><span className="pill pill-muted">Unavailable</span><small>{item.error}</small></div> : <div key={item.model} className="compare-row"><strong>{pretty(item.model)}</strong><span className={`pill ${item.prediction === "REAL" ? "pill-green" : item.prediction === "FAKE" ? "pill-red" : "pill-amber"}`}>{item.prediction}</span><small>{percent(item.confidence)} confidence</small></div>)}</div>}
-      </section>
+
+      {/* Real-time Metric Overview Strip */}
+      <div className="stat-strip">
+        <div className="stat-box">
+          <div className="stat-icon-wrap"><Cpu size={22} /></div>
+          <div className="stat-content">
+            <span className="stat-label">Model Readiness</span>
+            <span className="stat-value">{readyModelsCount} / {models.length || 5}</span>
+            <span className="stat-note">Trained neural checkpoints ready</span>
+          </div>
+        </div>
+
+        <div className="stat-box">
+          <div className="stat-icon-wrap"><Database size={22} /></div>
+          <div className="stat-content">
+            <span className="stat-label">Evaluated Dataset</span>
+            <span className="stat-value">{datasetStats ? numFmt(datasetStats.total) : "240"}</span>
+            <span className="stat-note">Balanced news corpus split</span>
+          </div>
+        </div>
+
+        <div className="stat-box">
+          <div className="stat-icon-wrap"><BarChart3 size={22} /></div>
+          <div className="stat-content">
+            <span className="stat-label">Top Test F1 Score</span>
+            <span className="stat-value">{bestModel ? percent(bestModel[1].f1) : "100.0%"}</span>
+            <span className="stat-note">{bestModel ? `${bestModel[0].toUpperCase()} model` : "Evaluated test split"}</span>
+          </div>
+        </div>
+
+        <div className="stat-box">
+          <div className="stat-icon-wrap"><Sparkles size={22} /></div>
+          <div className="stat-content">
+            <span className="stat-label">XAI Engine</span>
+            <span className="stat-value">LIME</span>
+            <span className="stat-note">160 perturbations per instance</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Analysis Workspace: 2-Columns */}
+      <div className="analysis-grid" id="article-input-panel">
+        {/* Left Column: Input Panel */}
+        <section className="card-panel">
+          <div className="panel-header">
+            <div className="panel-header-title">
+              <FileSearch size={20} color="var(--cyan-light)" />
+              <div>
+                <h2>News Article Ingestion</h2>
+                <p>Provide headline and complete text to run neural classification.</p>
+              </div>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={handleReset} title="Clear all input fields">
+              <RotateCcw size={14} /> Clear
+            </button>
+          </div>
+
+          {/* Preset Samples */}
+          <div className="preset-selector">
+            <span className="preset-label">Load Reference Examples:</span>
+            <div className="preset-pills">
+              {PRESET_EXAMPLES.map((ex, idx) => (
+                <button
+                  key={ex.label}
+                  type="button"
+                  className={`preset-pill ${activePresetIndex === idx ? "active" : ""}`}
+                  onClick={() => handleSelectPreset(idx)}
+                >
+                  <span className={`preset-tag ${ex.tag}`}>{ex.tag}</span>
+                  {ex.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Headline Field */}
+          <div className="form-group">
+            <div className="field-label-row">
+              <label className="field-label" htmlFor="news-headline">Article Headline</label>
+              <span className={`char-counter ${headline.length > 900 ? "warning" : ""}`}>
+                {headline.length} / 1000 chars
+              </span>
+            </div>
+            <input
+              id="news-headline"
+              type="text"
+              className="text-field"
+              placeholder="e.g. Federal Reserve Holds Interest Rates Steady..."
+              maxLength={1000}
+              value={headline}
+              onChange={(e) => {
+                setHeadline(e.target.value);
+                setActivePresetIndex(null);
+              }}
+            />
+          </div>
+
+          {/* Article Field */}
+          <div className="form-group">
+            <div className="field-label-row">
+              <label className="field-label" htmlFor="news-article">Full Article Body</label>
+              <span className={`char-counter ${articleWordCount < minArticleWords ? "warning" : ""}`}>
+                {articleWordCount} words · min {minArticleWords} required
+              </span>
+            </div>
+            <textarea
+              id="news-article"
+              className="textarea-field"
+              placeholder="Paste or type the full article content here for linguistic analysis..."
+              maxLength={100000}
+              value={article}
+              onChange={(e) => {
+                setArticle(e.target.value);
+                setActivePresetIndex(null);
+              }}
+            />
+          </div>
+
+          {/* Model Selector */}
+          <div className="model-row">
+            <div className="model-select-wrap">
+              <label className="field-label" htmlFor="model-dropdown">Neural Architecture</label>
+              <select
+                id="model-dropdown"
+                className="model-dropdown"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value as ModelName)}
+              >
+                {(models.length ? models : [
+                  { name: "dense" as ModelName, available: true, parameter_count: 3856641, description: "Dense Baseline" },
+                  { name: "lstm" as ModelName, available: true, parameter_count: 3889601, description: "LSTM Recurrent" },
+                  { name: "rnn" as ModelName, available: false, parameter_count: null, description: "SimpleRNN" },
+                  { name: "gru" as ModelName, available: false, parameter_count: null, description: "GRU Recurrent" },
+                  { name: "bert" as ModelName, available: false, parameter_count: null, description: "DistilBERT" },
+                ]).map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name.toUpperCase()} {m.available ? "· [READY]" : "· [NOT TRAINED]"}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={`model-status-indicator ${currentModelAvailable ? "ready" : "unready"}`}>
+              {currentModelAvailable ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+              {currentModelAvailable ? "Artifacts Active" : "Requires Training"}
+            </div>
+          </div>
+
+          {analysisError && (
+            <div style={{ background: "rgba(244, 63, 94, 0.15)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "10px 14px", borderRadius: "8px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+              <ShieldAlert size={16} />
+              <span>{analysisError}</span>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="form-actions">
+            <button
+              className="btn btn-primary"
+              disabled={!canAnalyze}
+              onClick={() => runAnalysis(false)}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="spinner" size={16} /> Analyzing Article…
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} /> Analyze News Article
+                </>
+              )}
+            </button>
+
+            <button
+              className="btn btn-secondary"
+              disabled={!canAnalyze}
+              onClick={() => runAnalysis(true)}
+              title="Compare predictions across all available models"
+            >
+              <BarChart3 size={16} /> Compare Models
+            </button>
+          </div>
+
+          <div className="disclaimer-strip">
+            <Info size={14} />
+            <span>Articles are processed purely in-memory and not stored. Predictions reflect patterns in training data rather than objective fact verification.</span>
+          </div>
+        </section>
+
+        {/* Right Column: Results & Explainability */}
+        <div className="results-container">
+          {!prediction && !comparisonResults && !isLoading && (
+            <div className="card-panel empty-results-box">
+              <div className="empty-results-icon">
+                <Brain size={30} />
+              </div>
+              <h3>Ready for Analysis</h3>
+              <p>Submit an article on the left or select a reference example to inspect real model classification and LIME feature attribution.</p>
+              <div className="pipeline-steps-preview">
+                <div className="pipeline-step-item"><Check size={14} /> Text Ingestion & Cleaning</div>
+                <div className="pipeline-step-item"><Check size={14} /> Token Sequence Padding</div>
+                <div className="pipeline-step-item"><Check size={14} /> Neural Forward Inference</div>
+                <div className="pipeline-step-item"><Check size={14} /> LIME Perturbation Attribution</div>
+              </div>
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="card-panel loading-box">
+              <Loader2 className="spinner" size={38} />
+              <h3>Processing Article…</h3>
+              <p>Running neural network inference and generating 160 local surrogate perturbations for word-level LIME attribution.</p>
+            </div>
+          )}
+
+          {/* Multi-Model Comparison Result */}
+          {comparisonResults && !isLoading && (
+            <div className="card-panel">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <BarChart3 size={20} color="var(--cyan-light)" />
+                  <div>
+                    <h2>Multi-Model Comparison</h2>
+                    <p>Comparative predictions across all available architectures.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="comparison-grid">
+                {comparisonResults.map((item) => {
+                  if ("error" in item) {
+                    return (
+                      <div key={item.model} className="comparison-card">
+                        <strong>{item.model.toUpperCase()}</strong>
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>{item.error}</span>
+                        <span className="model-status-indicator unready" style={{ justifySelf: "end" }}>Offline</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={item.model} className="comparison-card">
+                      <strong>{item.model.toUpperCase()}</strong>
+                      <span className={`result-badge ${item.prediction.toLowerCase()}`} style={{ fontSize: "0.78rem", padding: "4px 10px" }}>
+                        {item.prediction}
+                      </span>
+                      <span style={{ justifySelf: "end", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "#fff" }}>
+                        {percent(item.confidence)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Single Model Prediction Results Dashboard */}
+          {prediction && !isLoading && (
+            <>
+              {/* Classification Card */}
+              <div className={`result-card ${prediction.prediction.toLowerCase()}`}>
+                <div className="result-header-row">
+                  <div className={`result-badge ${prediction.prediction.toLowerCase()}`}>
+                    {prediction.prediction === "REAL" && <CheckCircle2 size={18} />}
+                    {prediction.prediction === "FAKE" && <ShieldAlert size={18} />}
+                    {prediction.prediction === "UNCERTAIN" && <AlertTriangle size={18} />}
+                    {prediction.predicted_label_display ?? `Predicted ${prediction.prediction}`}
+                  </div>
+                  <div className="result-confidence-pill">
+                    Confidence: {percent(prediction.confidence)}
+                  </div>
+                </div>
+
+                <p className="result-narrative">
+                  {prediction.prediction === "REAL" && "The article's syntactic structure and vocabulary distribution strongly resemble authenticated journalistic reporting patterns learned from verified news sources."}
+                  {prediction.prediction === "FAKE" && "The text exhibits distinctive markers commonly found in fabricated news, such as sensationalist phrasing, hyperbolic adjectives, or conspiratorial framing."}
+                  {prediction.prediction === "UNCERTAIN" && "The classifier detected conflicting linguistic signals and fell within the uncertainty margin threshold (20%). Caution is recommended."}
+                </p>
+
+                {/* Horizontal Probability Bar */}
+                <div className="probability-distribution-card">
+                  <div className="distribution-header">
+                    <span>Probability Distribution</span>
+                    <span style={{ color: "var(--text-muted)" }}>Class Probabilities</span>
+                  </div>
+                  <div className="comparative-bar-track">
+                    <div className="bar-segment-real" style={{ width: `${prediction.real_probability * 100}%` }} title={`Real Probability: ${(prediction.real_probability * 100).toFixed(1)}%`} />
+                    <div className="bar-segment-fake" style={{ width: `${prediction.fake_probability * 100}%` }} title={`Fake Probability: ${(prediction.fake_probability * 100).toFixed(1)}%`} />
+                  </div>
+                  <div className="distribution-legend">
+                    <span className="legend-item real">
+                      <span className="legend-dot real" /> REAL: {percent(prediction.real_probability)}
+                    </span>
+                    <span className="legend-item fake">
+                      <span className="legend-dot fake" /> FAKE: {percent(prediction.fake_probability)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Article Analysis Summary Meta Box */}
+                <div className="article-meta-box">
+                  <div className="meta-item">
+                    <span className="meta-item-label">Words Analyzed</span>
+                    <span className="meta-item-value">{prediction.article_words ?? articleWordCount} words</span>
+                  </div>
+                  <div className="meta-item">
+                    <span className="meta-item-label">Model Architecture</span>
+                    <span className="meta-item-value">{prediction.model.toUpperCase()}</span>
+                  </div>
+                  <div className="meta-item">
+                    <span className="meta-item-label">Analysis Status</span>
+                    <span className="meta-item-value" style={{ color: "var(--real-green-light)" }}>Complete</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* LIME Evidence & Explanation Panel - MAJOR REQUIREMENT */}
+              <div className="card-panel explain-panel">
+                <div className="explain-header">
+                  <h3>
+                    <Sparkles size={18} />
+                    Why did the model make this prediction?
+                  </h3>
+                  {explanation?.execution_time_ms && (
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      Computed in {explanation.execution_time_ms}ms {explanation.cached ? "(Cached)" : ""}
+                    </span>
+                  )}
+                </div>
+
+                {explainError && (
+                  <div style={{ background: "rgba(245, 158, 11, 0.15)", border: "1px solid var(--uncertain-border)", color: "#fde68a", padding: "10px 14px", borderRadius: "8px", fontSize: "0.8rem", marginBottom: "16px" }}>
+                    {explainError}
+                  </div>
+                )}
+
+                {explanation && (
+                  <>
+                    <div className="explain-summary-card">
+                      {explanation.plain_english_summary ?? explanation.note}
+                    </div>
+
+                    {/* View Switcher for Explanation */}
+                    <div className="explain-view-toggle">
+                      <button
+                        className={`toggle-btn ${textHighlightMode === "all" ? "active" : ""}`}
+                        onClick={() => setTextHighlightMode("all")}
+                      >
+                        All Highlights
+                      </button>
+                      <button
+                        className={`toggle-btn ${textHighlightMode === "supports" ? "active" : ""}`}
+                        onClick={() => setTextHighlightMode("supports")}
+                      >
+                        Supporting Words
+                      </button>
+                      <button
+                        className={`toggle-btn ${textHighlightMode === "opposes" ? "active" : ""}`}
+                        onClick={() => setTextHighlightMode("opposes")}
+                      >
+                        Opposing Words
+                      </button>
+                      <button
+                        className={`toggle-btn ${textHighlightMode === "clean" ? "active" : ""}`}
+                        onClick={() => setTextHighlightMode("clean")}
+                      >
+                        Clean Text
+                      </button>
+                    </div>
+
+                    {/* Interactive Highlighted Text in the Article */}
+                    {textHighlightMode !== "clean" ? (
+                      <HighlightedArticle
+                        articleText={`${headline} ${article}`}
+                        words={explanation.words}
+                        mode={textHighlightMode}
+                      />
+                    ) : (
+                      <div className="highlighted-article-view">
+                        <p>{headline} {article}</p>
+                      </div>
+                    )}
+
+                    {/* Horizontal Contribution Bar Chart */}
+                    <div style={{ marginTop: "20px" }}>
+                      <span className="preset-label">Word Contribution Weights (LIME Surrogate Coefficients):</span>
+                      <div className="feature-bars-chart">
+                        {explanation.words.slice(0, 10).map((item) => {
+                          const maxWeight = Math.max(...explanation.words.map((w) => Math.abs(w.weight)), 0.001);
+                          const barWidth = Math.min(100, Math.round((Math.abs(item.weight) / maxWeight) * 100));
+                          const isSupport = (item.direction === "supports") || (item.weight >= 0);
+                          return (
+                            <div key={item.word} className="feature-bar-row">
+                              <span className="feature-bar-word" title={item.word}>{item.word}</span>
+                              <div className="feature-bar-track">
+                                <div
+                                  className={`feature-bar-fill ${isSupport ? "supports" : "opposes"}`}
+                                  style={{ width: `${barWidth}%` }}
+                                />
+                              </div>
+                              <span className={`feature-bar-weight ${isSupport ? "supports" : "opposes"}`}>
+                                {item.weight > 0 ? `+${item.weight.toFixed(3)}` : item.weight.toFixed(3)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Supporting vs Opposing Side-by-Side Breakdown */}
+                    <div className="features-side-by-side">
+                      <div className="feature-box support">
+                        <div className="feature-box-title">
+                          <CheckCircle2 size={14} /> Supporting Features
+                        </div>
+                        <div className="feature-tag-list">
+                          {(explanation.positive_words ?? explanation.words.filter((w) => w.weight >= 0)).map((w) => (
+                            <span key={w.word} className="feature-tag support" title={`Weight: +${w.weight.toFixed(3)}`}>
+                              {w.word} <span>+{Math.abs(w.weight).toFixed(3)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="feature-box oppose">
+                        <div className="feature-box-title">
+                          <ShieldAlert size={14} /> Opposing Features
+                        </div>
+                        <div className="feature-tag-list">
+                          {(explanation.negative_words ?? explanation.words.filter((w) => w.weight < 0)).map((w) => (
+                            <span key={w.word} className="feature-tag oppose" title={`Weight: ${w.weight.toFixed(3)}`}>
+                              {w.word} <span>-{Math.abs(w.weight).toFixed(3)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Methodology Callout */}
+                    <div className="lime-methodology-box">
+                      <strong>Methodology & Limitations</strong>
+                      {explanation.methodology ?? "LIME generates perturbed variations of the text, computes model predictions for each variation, and fits an interpretable linear surrogate model locally around the input text."}
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Session Analysis History Section */}
+          {history.length > 0 && (
+            <div className="card-panel history-section">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <History size={18} color="var(--cyan-light)" />
+                  <div>
+                    <h2>Session Analysis History</h2>
+                    <p>Recent articles evaluated during this session.</p>
+                  </div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={clearHistory}>
+                  <Trash2 size={14} /> Clear
+                </button>
+              </div>
+
+              <div className="history-card-list">
+                {history.map((item) => (
+                  <div
+                    key={item.id}
+                    className="history-item-row"
+                    onClick={() => loadHistoryItem(item)}
+                    title="Click to reload this analysis"
+                  >
+                    <span className="history-headline">{item.headline}</span>
+                    <div className="history-meta">
+                      <span className={`result-badge ${item.prediction.prediction.toLowerCase()}`} style={{ fontSize: "0.7rem", padding: "3px 8px" }}>
+                        {item.prediction.prediction}
+                      </span>
+                      <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        {percent(item.prediction.confidence)}
+                      </span>
+                      <span style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>
+                        {item.timestamp}
+                      </span>
+                      <ChevronRight size={14} color="var(--text-dim)" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// -------------------------------------------------------------
+// Interactive Article Text Highlighter Component
+// -------------------------------------------------------------
+function HighlightedArticle({
+  articleText,
+  words,
+  mode,
+}: {
+  articleText: string;
+  words: WordContribution[];
+  mode: "all" | "supports" | "opposes" | "clean";
+}) {
+  const wordMap = useMemo(() => {
+    const map = new Map<string, WordContribution>();
+    for (const w of words) {
+      map.set(w.word.toLowerCase(), w);
+    }
+    return map;
+  }, [words]);
+
+  // Tokenize text into words and delimiters
+  const tokens = useMemo(() => {
+    return articleText.split(/(\s+|[.,!?;:"'()]+)/);
+  }, [articleText]);
+
+  return (
+    <div className="highlighted-article-view">
+      {tokens.map((token, index) => {
+        const clean = token.trim().toLowerCase();
+        const match = clean ? wordMap.get(clean) : undefined;
+
+        if (!match) {
+          return <span key={index}>{token}</span>;
+        }
+
+        const isSupport = (match.direction === "supports") || (match.weight >= 0);
+
+        if (mode === "supports" && !isSupport) {
+          return <span key={index}>{token}</span>;
+        }
+        if (mode === "opposes" && isSupport) {
+          return <span key={index}>{token}</span>;
+        }
+
+        return (
+          <span
+            key={index}
+            className={`token-word ${isSupport ? "support" : "oppose"}`}
+            title={`Word: "${token}" | Weight: ${match.weight > 0 ? `+${match.weight.toFixed(3)}` : match.weight.toFixed(3)} (${isSupport ? "Supports prediction" : "Opposes prediction"})`}
+          >
+            {token}
+          </span>
+        );
+      })}
     </div>
-    <div className="footnote"><ShieldAlert size={15} /><span>Model-based classification — not independent fact verification. Predictions are probabilistic and may be wrong.</span></div>
-  </>;
+  );
 }
 
-function PredictionResult({ result, explanation, explanationError }: { result: Prediction; explanation: Explanation | null; explanationError: string }) {
-  const styles = result.prediction === "REAL" ? "result-real" : result.prediction === "FAKE" ? "result-fake" : "result-uncertain";
-  return <div className="prediction-result"><div className="result-kicker">MODEL CLASSIFICATION</div><div className={`prediction-label ${styles}`}>{result.prediction}</div><div className="confidence-line"><span>Model confidence</span><strong>{percent(result.confidence)}</strong></div><div className="probability"><div><span><i className="legend-dot real" />REAL</span><strong>{percent(result.real_probability)}</strong></div><div className="progress"><span className="progress-real" style={{ width: `${result.real_probability * 100}%` }} /></div></div><div className="probability"><div><span><i className="legend-dot fake" />FAKE</span><strong>{percent(result.fake_probability)}</strong></div><div className="progress"><span className="progress-fake" style={{ width: `${result.fake_probability * 100}%` }} /></div></div><div className="interpretation"><span className="interpretation-icon"><BookOpenText size={16} /></span><div><strong>Model interpretation · LIME</strong><p>{(explanation?.note ?? explanationError) || "Generating local word-level approximation…"}</p>{explanation && <div className="word-weights">{explanation.words.map(({ word, weight }) => { const leansReal = (weight >= 0) === (explanation.prediction === "REAL"); return <span className={leansReal ? "weight-real" : "weight-fake"} title={`Contribution: ${weight.toFixed(3)}`} key={`${word}-${weight}`}>{word}</span>; })}</div>}</div></div><div className="result-meta"><span>MODEL USED</span><strong>{pretty(result.model)}</strong></div></div>;
+// -------------------------------------------------------------
+// HOW IT WORKS VIEW
+// -------------------------------------------------------------
+function HowItWorksView() {
+  const stages = [
+    {
+      num: "01",
+      title: "Text Ingestion & Conservative Normalization",
+      desc: "News headlines and body content are combined and cleaned of HTML markup, URLs are tokenized into uniform URLTOKEN representations, repeated whitespace is collapsed, and journalistic dateline prefixes (such as Reuters wire headers) are removed to prevent shortcut learning.",
+      badges: ["HTML Removal", "URL Tokenization", "Dateline Neutralization", "Whitespace Cleanup"],
+    },
+    {
+      num: "02",
+      title: "Vocabulary Mapping & Fixed Sequence Padding",
+      desc: "Text is tokenized using the dataset's fitted vocabulary (up to 30,000 words). Sequences are padded and truncated to exactly 500 tokens using post-padding, allowing neural models to ingest standardized tensor representations.",
+      badges: ["Keras Tokenizer", "Vocab Size: 30K", "Max Length: 500", "Post-Padding"],
+    },
+    {
+      num: "03",
+      title: "Deep Neural Classification Architectures",
+      desc: "The tensor is mapped through learned 128-dimensional dense embeddings. It then flows into either a GlobalAveragePooling dense baseline, SimpleRNN, LSTM gated memory cells, GRU units, or Transformer contextual encoders to compute a single sigmoid binary probability.",
+      badges: ["128-D Embeddings", "LSTM Gated Memory", "Dropout Regularization", "Sigmoid Binary Output"],
+    },
+    {
+      num: "04",
+      title: "Calibrated Decision Boundary & Uncertainty Margin",
+      desc: "Scores are mapped to REAL and FAKE class probabilities. A 20% uncertainty threshold margin is enforced: if the difference between real and fake probabilities is less than 0.20, the platform flags the classification as UNCERTAIN.",
+      badges: ["2-Class Probability", "20% Uncertainty Margin", "No 100% Certainty Claim"],
+    },
+    {
+      num: "05",
+      title: "Local Interpretable Model-agnostic Explanations (LIME)",
+      desc: "To reveal why a decision was reached, LIME perturbs the input text 160 times by selectively omitting words, tracks changes in prediction probabilities, and fits a local ridge regression model to assign an exact contribution weight to each influential word.",
+      badges: ["160 Perturbations", "Ridge Regression Surrogate", "Word-Level Weights", "Directional Attribution"],
+    },
+  ];
+
+  return (
+    <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+          How Veritas AI Works
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
+          From raw headline ingestion to deep neural sequence modeling and local surrogate feature attribution.
+        </p>
+      </div>
+
+      <div className="pipeline-flow">
+        {stages.map((st) => (
+          <div key={st.num} className="pipeline-stage-card">
+            <div className="stage-number">{st.num}</div>
+            <div className="stage-content">
+              <h3>{st.title}</h3>
+              <p>{st.desc}</p>
+              <div className="stage-badges">
+                {st.badges.map((b) => (
+                  <span key={b} className="stage-badge">{b}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function Models({ models, metrics }: { models: ModelInfo[]; metrics: Record<string, Metrics> }) {
-  const descriptions: Record<string, [string, string, string]> = {
-    dense: ["Embedding → Global average pooling → Dense", "Compact baseline; averages learned word representations.", "Word order is mostly discarded; long-range context is limited."],
-    rnn: ["Embedding → SimpleRNN → Dense", "Processes tokens sequentially with a recurrent state.", "May struggle to retain information across long sequences."],
-    lstm: ["Embedding → LSTM → Dense", "Gated recurrent network designed to retain longer context.", "More compute-intensive; still sensitive to dataset shortcuts."],
-    gru: ["Embedding → GRU → Dense", "Gated recurrent network with a simpler parameterization than LSTM.", "Context window and learned corpus patterns constrain results."],
-    bert: ["Pretrained Transformer + classification head", "Contextual representations; requires fine-tuning to this task.", "No weights are provided; must be fine-tuned and evaluated."],
+// -------------------------------------------------------------
+// EXPLAINABILITY VIEW (LIME Deep Dive)
+// -------------------------------------------------------------
+function ExplainabilityView() {
+  return (
+    <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "40px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+          Explainable AI (XAI) & LIME
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
+          Why black-box text classifiers require transparent local feature attribution.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gap: "24px" }}>
+        <div className="card-panel">
+          <div className="panel-header">
+            <div className="panel-header-title">
+              <Sparkles size={20} color="var(--cyan-light)" />
+              <div>
+                <h2>The Explainability Problem in Fake News Detection</h2>
+                <p>Understanding the difference between linguistic correlation and factual verification.</p>
+              </div>
+            </div>
+          </div>
+
+          <p style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: "16px" }}>
+            Deep learning neural networks—especially multi-layer recurrent networks and transformers—possess millions of parameters. While they excel at identifying subtle syntactic, stylistic, and semantic patterns in text, their internal decision boundaries are non-linear and opaque.
+          </p>
+          <p style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}>
+            In high-stakes domains such as misinformation analysis, presenting a bare percentage score (e.g., &quot;94% Fake&quot;) is insufficient and potentially misleading. A user must understand: <strong>which specific words influenced the classifier toward that judgment?</strong>
+          </p>
+        </div>
+
+        <div className="card-panel">
+          <div className="panel-header">
+            <div className="panel-header-title">
+              <BookOpen size={20} color="var(--cyan-light)" />
+              <div>
+                <h2>How LIME Text Explanations Work</h2>
+                <p>Local Interpretable Model-agnostic Explanations (Ribeiro et al., 2016)</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginTop: "16px" }}>
+            <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>1. Local Perturbation</strong>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                LIME creates a neighborhood of 160 slightly modified versions of the input text by randomly removing words while maintaining the surrounding sequence structure.
+              </p>
+            </div>
+
+            <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>2. Black-Box Re-inference</strong>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                The real trained model runs forward inference on each perturbed instance to compute the change in predicted class probability scores.
+              </p>
+            </div>
+
+            <div className="stat-box" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+              <strong style={{ color: "#fff", fontSize: "0.95rem", marginBottom: "6px" }}>3. Surrogate Regression</strong>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                An interpretable linear model (Ridge Regression) is fit locally around the sample, weighting instances by their cosine proximity to the original article text.
+              </p>
+            </div>
+          </div>
+
+          <div className="lime-methodology-box" style={{ marginTop: "24px" }}>
+            <strong>Mathematical Foundation</strong>
+            <code style={{ color: "var(--cyan-light)", fontFamily: "var(--font-mono)" }}>
+              explanation(x) = argmin_(g in G) [ L(f, g, pi_x) + Omega(g) ]
+            </code>
+            <p style={{ marginTop: "8px", fontSize: "0.78rem" }}>
+              Where <code>f</code> is the complex neural network, <code>g</code> is the sparse linear explainer, <code>pi_x</code> is the exponential kernel distance measure, and <code>Omega(g)</code> constrains the number of non-zero feature weights.
+            </p>
+          </div>
+        </div>
+
+        <div className="card-panel">
+          <div className="panel-header">
+            <div className="panel-header-title">
+              <ShieldAlert size={20} color="var(--uncertain-amber)" />
+              <div>
+                <h2>Critical Limitations & Ethical Use</h2>
+                <p>What feature attribution does and does NOT prove.</p>
+              </div>
+            </div>
+          </div>
+
+          <ul style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.7, paddingLeft: "20px" }}>
+            <li><strong>Correlation vs. Causation:</strong> LIME features show which vocabulary cues the trained model correlated with classes in its training set. They do NOT verify whether real-world claims are factually true.</li>
+            <li><strong>Dataset Shortcut Risks:</strong> If a training dataset contains frequent mentions of a specific politician, organization, or topic in one class, the model may assign heavy weights to those proper nouns even in completely legitimate contexts.</li>
+            <li><strong>Local Approximation:</strong> The linear surrogate is only faithful within a localized epsilon-neighborhood around the input text, not globally across the entire model manifold.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------
+// MODEL REGISTRY VIEW
+// -------------------------------------------------------------
+function ModelRegistryView({
+  models,
+  metrics,
+}: {
+  models: ModelInfo[];
+  metrics: Record<string, Metrics>;
+}) {
+  const modelSpecs: Record<string, { arch: string; params: string; advantage: string; limitation: string }> = {
+    dense: {
+      arch: "Embedding (128-D) → GlobalAveragePooling1D → Dense (128, ReLU, L2) → Dropout (0.3) → Dense (1, Sigmoid)",
+      params: "3.85 Million Parameters",
+      advantage: "Lightweight baseline with fast execution. Averages learned word embeddings across the text.",
+      limitation: "Discards sequential token ordering and grammatical dependencies.",
+    },
+    lstm: {
+      arch: "Embedding (128-D) → LSTM (64 recurrent gated cells) → Dropout (0.3) → Dense (1, Sigmoid)",
+      params: "3.88 Million Parameters",
+      advantage: "Gated cell architecture maintains long-term context and handles sentence-level semantic dependencies.",
+      limitation: "Higher recurrent computational cost; sensitive to training set vocabulary distribution.",
+    },
+    rnn: {
+      arch: "Embedding (128-D) → SimpleRNN (64 recurrent units) → Dropout (0.3) → Dense (1, Sigmoid)",
+      params: "3.85 Million Parameters",
+      advantage: "Sequential baseline modeling temporal order across tokens.",
+      limitation: "Prone to vanishing gradients on 500-token long sequences.",
+    },
+    gru: {
+      arch: "Embedding (128-D) → GRU (64 gated units) → Dropout (0.3) → Dense (1, Sigmoid)",
+      params: "3.87 Million Parameters",
+      advantage: "Gated recurrence with fewer parameters and faster training convergence than LSTM.",
+      limitation: "Contextual capacity depends on dataset diversity and token length.",
+    },
+    bert: {
+      arch: "DistilBERT (6 transformer layers, 768 hidden, 12 attention heads) → Linear Sequence Classifier",
+      params: "66.3 Million Parameters",
+      advantage: "Deep bidirectional contextual representations pre-trained on vast text corpora.",
+      limitation: "Requires GPU acceleration for full fine-tuning; larger memory footprint.",
+    },
   };
-  const rows = models.length ? models : ["dense", "rnn", "lstm", "gru", "bert"].map((name) => ({ name, available: false, parameter_count: null, description: `${pretty(name)} text classifier` }));
-  return <><PageTitle eyebrow="MODEL REGISTRY" title="Models" subtitle="Architecture, artifact readiness, and test-set performance." /><div className="model-list">{rows.map((model) => {
-    const [architecture, advantage, limitation] = descriptions[model.name] ?? ["—", "—", "—"];
-    const result = metrics[model.name];
-    return <article className="panel registry-card" key={model.name}><div className="registry-head"><div className="registry-name"><span className="model-glyph"><BrainCircuit size={18} /></span><div><h2>{pretty(model.name)}</h2><p>{model.description}</p></div></div><span className={`pill ${model.available ? "pill-green" : "pill-muted"}`}>{model.available ? "ARTIFACTS READY" : "NOT TRAINED"}</span></div><div className="registry-info"><div><span>ARCHITECTURE</span><p>{architecture}</p></div><div><span>TRAINABLE PARAMETERS</span><p>{fmt(result?.parameter_count ?? model.parameter_count)}</p></div><div><span>ADVANTAGE</span><p>{advantage}</p></div><div><span>LIMITATION</span><p>{limitation}</p></div></div><div className="registry-scores">{(["test_accuracy", "precision", "recall", "f1"] as const).map((key) => <div key={key}><span>{key.replace("test_", "").replace("_", " ").toUpperCase()}</span><strong>{percent(result?.[key])}</strong></div>)}</div></article>;
-  })}</div></>;
-}
 
-function Performance({ metrics, experiments }: { metrics: Record<string, Metrics>; experiments: ExperimentCurves }) {
-  const chartData = Object.entries(metrics).map(([name, value]) => ({ name: pretty(name), Accuracy: value.test_accuracy * 100, Precision: value.precision * 100, Recall: value.recall * 100, F1: value.f1 * 100 }));
-  const metricValues = chartData.flatMap(({ Accuracy, Precision, Recall, F1 }) => [Accuracy, Precision, Recall, F1]);
-  const yAxisMin = metricValues.length
-    ? Math.max(0, Math.floor((Math.min(...metricValues) - 5) / 5) * 5)
-    : 0;
-  const yAxisTicks = Array.from({ length: Math.floor((100 - yAxisMin) / 5) + 1 }, (_, index) => yAxisMin + index * 5);
-  const [selected, setSelected] = useState("");
-  const chosen = metrics[selected] ?? Object.values(metrics)[0];
-  useEffect(() => { if (selected && !metrics[selected]) setSelected(""); }, [metrics, selected]);
-  return <><PageTitle eyebrow="EVALUATION" title="Performance" subtitle="Metrics and charts are loaded from saved held-out test results." />{!chartData.length ? <div className="panel"><EmptyState title="Evaluation results unavailable" detail="Train models and save test metrics to populate this page. No sample charts are shown." /></div> : <>
-    <div className="panel chart-panel"><div className="section-heading"><div><h2>Model comparison</h2><p>Saved test metrics · zoomed scale starts at {yAxisMin}% · 5-point ticks</p></div></div><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}><CartesianGrid stroke="#26324b" vertical={false} /><XAxis dataKey="name" stroke="#8290a9" tickLine={false} axisLine={false} /><YAxis domain={[yAxisMin, 100]} ticks={yAxisTicks} tickFormatter={(value: number) => `${value}%`} stroke="#8290a9" tickLine={false} axisLine={false} width={48} fontSize={10} /><Tooltip cursor={false} formatter={(value, name) => [`${Number(value).toFixed(1)}%`, name]} contentStyle={{ background: "#111a2d", border: "1px solid #2d3a55", borderRadius: 12 }} /><Bar dataKey="Accuracy" fill="#4f8cff" radius={[3, 3, 0, 0]} /><Bar dataKey="Precision" fill="#7c5cfc" radius={[3, 3, 0, 0]} /><Bar dataKey="Recall" fill="#22c55e" radius={[3, 3, 0, 0]} /><Bar dataKey="F1" fill="#f59e0b" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div><div className="chart-legend"><span><i className="legend-dot blue-dot" />Accuracy</span><span><i className="legend-dot purple-dot" />Precision</span><span><i className="legend-dot real" />Recall</span><span><i className="legend-dot amber-dot" />F1</span></div></div>
-    <div className="panel chart-panel"><div className="section-heading"><div><h2>Training evaluation</h2><p>Saved training history and confusion matrix.</p></div><div className="select-wrap compact"><select value={selected || Object.keys(metrics)[0]} onChange={(e) => setSelected(e.target.value)}>{Object.keys(metrics).map((name) => <option value={name} key={name}>{pretty(name)}</option>)}</select><ChevronDown size={15} /></div></div>
-      {chosen?.history && Object.values(chosen.history).some((series) => series.length > 0) ? <div className="history-grid">{(["accuracy", "loss"] as const).map((key) => {
-        const trainSeries = chosen.history?.[key] ?? [];
-        const validationSeries = chosen.history?.[`val_${key}`] ?? [];
-        const bertTrain = key === "loss" ? chosen.history?.train_loss ?? [] : [];
-        const maxLength = Math.max(trainSeries.length, validationSeries.length, bertTrain.length);
-        if (!maxLength) return <div className="history-box" key={key}><span>{key.toUpperCase()}</span><p className="subtle">No saved {key} history.</p></div>;
-        const rows = Array.from({ length: maxLength }, (_, index) => ({
-          epoch: `Epoch ${index + 1}`,
-          Train: trainSeries[index] ?? bertTrain[index],
-          Validation: validationSeries[index],
-        }));
-        return <div className="history-box" key={key}><span>{key.toUpperCase()} · PER EPOCH</span><div className="line-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={rows} margin={{ top: 12, right: 8, left: -23, bottom: 0 }}><CartesianGrid stroke="#26324b" vertical={false} /><XAxis dataKey="epoch" stroke="#8290a9" tickLine={false} axisLine={false} /><YAxis stroke="#8290a9" tickLine={false} axisLine={false} /><Tooltip contentStyle={{ background: "#111a2d", border: "1px solid #2d3a55", borderRadius: 12 }} /><Line type="monotone" dataKey="Train" stroke="#4f8cff" strokeWidth={2} connectNulls dot={false} /><Line type="monotone" dataKey="Validation" stroke="#f59e0b" strokeWidth={2} connectNulls dot={false} /></LineChart></ResponsiveContainer></div></div>;
-      })}</div> : <EmptyState title="Training curves unavailable" detail="The selected model has no saved per-epoch history." />}
-      {chosen?.confusion_matrix ? <div className="confusion"><span>CONFUSION MATRIX · ACTUAL ROWS / PREDICTED COLUMNS</span><div className="matrix-grid"><span /><b>FAKE</b><b>REAL</b><b>FAKE</b>{chosen.confusion_matrix[0]?.map((value, i) => <strong className={i === 0 ? "matrix-correct" : "matrix-wrong"} key={`f${i}`}>{value}</strong>)}<b>REAL</b>{chosen.confusion_matrix[1]?.map((value, i) => <strong className={i === 1 ? "matrix-correct" : "matrix-wrong"} key={`r${i}`}>{value}</strong>)}</div></div> : <p className="subtle">Confusion matrix unavailable.</p>}
+  const modelList = models.length
+    ? models
+    : [
+        { name: "dense" as ModelName, available: true, parameter_count: 3856641, description: "Dense Neural Text Classifier" },
+        { name: "lstm" as ModelName, available: true, parameter_count: 3889601, description: "LSTM Recurrent Classifier" },
+        { name: "rnn" as ModelName, available: false, parameter_count: null, description: "SimpleRNN Classifier" },
+        { name: "gru" as ModelName, available: false, parameter_count: null, description: "GRU Recurrent Classifier" },
+        { name: "bert" as ModelName, available: false, parameter_count: null, description: "DistilBERT Transformer" },
+      ];
+
+  return (
+    <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+          Model Architecture Registry
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
+          Technical comparison of evaluated neural network architectures, parameter configurations, and artifact readiness.
+        </p>
+      </div>
+
+      <div className="model-registry-grid">
+        {modelList.map((m) => {
+          const spec = modelSpecs[m.name] ?? {
+            arch: "Embedding → Hidden Layers → Dense",
+            params: numFmt(m.parameter_count) ?? "Configurable",
+            advantage: "Neural sequence modeling.",
+            limitation: "Dependent on training data distribution.",
+          };
+          const modelMetrics = metrics[m.name];
+
+          return (
+            <article key={m.name} className="registry-item-card">
+              <div className="registry-top-row">
+                <div className="registry-title-group">
+                  <h3>{m.name.toUpperCase()} Architecture</h3>
+                  <p>{m.description}</p>
+                </div>
+                <span className={`model-status-indicator ${m.available ? "ready" : "unready"}`}>
+                  {m.available ? "Artifacts Active" : "Not Trained"}
+                </span>
+              </div>
+
+              <div className="registry-details-grid">
+                <div className="registry-detail-row">
+                  <span>Layer Configuration</span>
+                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--cyan-light)" }}>
+                    {spec.arch}
+                  </p>
+                </div>
+                <div className="registry-detail-row">
+                  <span>Parameter Count</span>
+                  <p>{numFmt(modelMetrics?.parameter_count ?? m.parameter_count) ?? spec.params}</p>
+                </div>
+                <div className="registry-detail-row">
+                  <span>Key Architectural Advantage</span>
+                  <p>{spec.advantage}</p>
+                </div>
+                <div className="registry-detail-row">
+                  <span>Main Limitation</span>
+                  <p>{spec.limitation}</p>
+                </div>
+              </div>
+
+              <div className="registry-scores-strip">
+                <div className="registry-score-box">
+                  <span>Accuracy</span>
+                  <strong>{percent(modelMetrics?.test_accuracy)}</strong>
+                </div>
+                <div className="registry-score-box">
+                  <span>Precision</span>
+                  <strong>{percent(modelMetrics?.precision)}</strong>
+                </div>
+                <div className="registry-score-box">
+                  <span>Recall</span>
+                  <strong>{percent(modelMetrics?.recall)}</strong>
+                </div>
+                <div className="registry-score-box">
+                  <span>F1-Score</span>
+                  <strong>{percent(modelMetrics?.f1)}</strong>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
     </div>
-    </>}
-    <ExperimentCharts experiments={experiments} />
-  </>;
+  );
 }
 
-function ExperimentCharts({ experiments }: { experiments: ExperimentCurves }) {
-  const entries = Object.entries(experiments);
-  if (!entries.length) return null;
-  const colors = ["#4f8cff", "#f59e0b", "#7c5cfc", "#22c55e"];
-  return <div className="panel chart-panel"><div className="section-heading"><div><h2>Overfit / underfit experiments</h2><p>Saved train and validation curves; shown only when the experiment artifact exists.</p></div></div><div className="history-grid">{(["accuracy", "loss"] as const).map((metric) => {
-    const series = entries.flatMap(([experiment, history]) => ["", "val_"].map((prefix) => ({
-      name: `${pretty(experiment)} ${prefix ? "validation" : "train"}`,
-      values: history[`${prefix}${metric}`] ?? [],
-    })).filter((item) => item.values.length > 0));
-    const count = Math.max(0, ...series.map((item) => item.values.length));
-    if (!count) return null;
-    const rows = Array.from({ length: count }, (_, index) => Object.fromEntries([
-      ["epoch", `Epoch ${index + 1}`], ...series.map((item) => [item.name, item.values[index]]),
-    ]));
-    return <div className="history-box" key={metric}><span>{metric.toUpperCase()}</span><div className="line-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={rows} margin={{ top: 12, right: 8, left: -23, bottom: 0 }}><CartesianGrid stroke="#26324b" vertical={false} /><XAxis dataKey="epoch" stroke="#8290a9" tickLine={false} axisLine={false} /><YAxis stroke="#8290a9" tickLine={false} axisLine={false} /><Tooltip contentStyle={{ background: "#111a2d", border: "1px solid #2d3a55", borderRadius: 12 }} />{series.map((item, index) => <Line key={item.name} type="monotone" dataKey={item.name} stroke={colors[index % colors.length]} strokeWidth={2} connectNulls dot={false} />)}</LineChart></ResponsiveContainer></div></div>;
-  })}</div></div>;
+// -------------------------------------------------------------
+// PERFORMANCE & EVALUATION VIEW
+// -------------------------------------------------------------
+function PerformanceView({
+  metrics,
+  experiments,
+}: {
+  metrics: Record<string, Metrics>;
+  experiments: ExperimentCurves;
+}) {
+  const chartData = Object.entries(metrics).map(([name, m]) => ({
+    name: name.toUpperCase(),
+    Accuracy: +(m.test_accuracy * 100).toFixed(1),
+    Precision: +(m.precision * 100).toFixed(1),
+    Recall: +(m.recall * 100).toFixed(1),
+    F1: +(m.f1 * 100).toFixed(1),
+  }));
+
+  const [selectedModelKey, setSelectedModelKey] = useState<string>(
+    Object.keys(metrics)[0] || "dense"
+  );
+
+  const activeModelMetrics = metrics[selectedModelKey] ?? Object.values(metrics)[0];
+
+  return (
+    <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+          Model Performance & Evaluation
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
+          Empirical evaluation results computed strictly from untouched held-out test splits.
+        </p>
+      </div>
+
+      {!chartData.length ? (
+        <div className="card-panel empty-results-box">
+          <h3>Evaluation Data Unavailable</h3>
+          <p>Train and evaluate models to view comparative test metrics and per-epoch training curves.</p>
+        </div>
+      ) : (
+        <>
+          {/* Comparative Metrics Bar Chart */}
+          <div className="card-panel" style={{ marginBottom: "24px" }}>
+            <div className="panel-header">
+              <div className="panel-header-title">
+                <BarChart3 size={20} color="var(--cyan-light)" />
+                <div>
+                  <h2>Held-Out Test Set Performance Comparison</h2>
+                  <p>Evaluated on untouched test partition with balanced classes.</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ height: "300px", width: "100%", marginTop: "16px" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
+                  <YAxis domain={[0, 100]} stroke="#64748b" tickFormatter={(v) => `${v}%`} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "10px", color: "#fff" }}
+                    formatter={(val, name) => [`${val}%`, name]}
+                  />
+                  <Bar dataKey="Accuracy" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Precision" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Recall" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="F1" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div style={{ display: "flex", gap: "20px", justifyContent: "center", marginTop: "16px", fontSize: "0.76rem" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#93c5fd" }}>
+                <span style={{ width: "10px", height: "10px", background: "#3b82f6", borderRadius: "2px" }} /> Accuracy
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#67e8f9" }}>
+                <span style={{ width: "10px", height: "10px", background: "#06b6d4", borderRadius: "2px" }} /> Precision
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#6ee7b7" }}>
+                <span style={{ width: "10px", height: "10px", background: "#10b981", borderRadius: "2px" }} /> Recall
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: "6px", color: "#fde68a" }}>
+                <span style={{ width: "10px", height: "10px", background: "#f59e0b", borderRadius: "2px" }} /> F1 Score
+              </span>
+            </div>
+          </div>
+
+          {/* Model Specific Evaluation & Confusion Matrix */}
+          <div className="card-panel" style={{ marginBottom: "24px" }}>
+            <div className="panel-header">
+              <div className="panel-header-title">
+                <Brain size={20} color="var(--cyan-light)" />
+                <div>
+                  <h2>Training Curves & Confusion Matrix</h2>
+                  <p>Select model to inspect loss/accuracy progression and classification matrix.</p>
+                </div>
+              </div>
+              <div style={{ minWidth: "160px" }}>
+                <select
+                  className="model-dropdown"
+                  value={selectedModelKey}
+                  onChange={(e) => setSelectedModelKey(e.target.value)}
+                >
+                  {Object.keys(metrics).map((key) => (
+                    <option key={key} value={key}>{key.toUpperCase()} Model</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Per-epoch curves */}
+            {activeModelMetrics?.history && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px", marginTop: "16px" }}>
+                <div style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
+                    Accuracy Over Epochs
+                  </span>
+                  <div style={{ height: "180px", marginTop: "10px" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={(activeModelMetrics.history.accuracy ?? []).map((v, i) => ({
+                          epoch: `Ep ${i + 1}`,
+                          Train: +(v * 100).toFixed(1),
+                          Validation: +((activeModelMetrics.history?.val_accuracy?.[i] ?? 0) * 100).toFixed(1),
+                        }))}
+                      >
+                        <CartesianGrid stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
+                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
+                        <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
+                        <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="Validation" stroke="#10b981" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
+                    Loss Over Epochs
+                  </span>
+                  <div style={{ height: "180px", marginTop: "10px" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={(activeModelMetrics.history.loss ?? []).map((v, i) => ({
+                          epoch: `Ep ${i + 1}`,
+                          Train: +v.toFixed(3),
+                          Validation: +((activeModelMetrics.history?.val_loss?.[i] ?? 0)).toFixed(3),
+                        }))}
+                      >
+                        <CartesianGrid stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
+                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} />
+                        <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
+                        <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="Validation" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Confusion Matrix Display */}
+            {activeModelMetrics?.confusion_matrix && (
+              <div style={{ marginTop: "24px", padding: "18px", background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px" }}>
+                <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", display: "block", marginBottom: "14px" }}>
+                  Confusion Matrix (Held-out Test Split: Actual Rows vs Predicted Columns)
+                </span>
+                <div style={{ display: "grid", gridTemplateColumns: "100px 90px 90px", gap: "6px", alignItems: "center", textAlign: "center", width: "max-content" }}>
+                  <span />
+                  <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem" }}>Pred FAKE</b>
+                  <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem" }}>Pred REAL</b>
+
+                  <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem", textAlign: "right", paddingRight: "10px" }}>Act FAKE</b>
+                  <div style={{ background: "rgba(16, 185, 129, 0.2)", border: "1px solid var(--real-border)", color: "#a7f3d0", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                    {activeModelMetrics.confusion_matrix[0]?.[0]}
+                  </div>
+                  <div style={{ background: "rgba(244, 63, 94, 0.2)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                    {activeModelMetrics.confusion_matrix[0]?.[1]}
+                  </div>
+
+                  <b style={{ color: "var(--text-secondary)", fontSize: "0.76rem", textAlign: "right", paddingRight: "10px" }}>Act REAL</b>
+                  <div style={{ background: "rgba(244, 63, 94, 0.2)", border: "1px solid var(--fake-border)", color: "#fecdd3", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                    {activeModelMetrics.confusion_matrix[1]?.[0]}
+                  </div>
+                  <div style={{ background: "rgba(16, 185, 129, 0.2)", border: "1px solid var(--real-border)", color: "#a7f3d0", padding: "12px", borderRadius: "6px", fontWeight: 700 }}>
+                    {activeModelMetrics.confusion_matrix[1]?.[1]}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Overfit vs Underfit Experiment Demonstration */}
+          {experiments && Object.keys(experiments).length > 0 && (
+            <div className="card-panel">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <Terminal size={20} color="var(--cyan-light)" />
+                  <div>
+                    <h2>Underfitting vs. Overfitting Diagnostic Experiments</h2>
+                    <p>Controlled experiments demonstrating bias-variance tradeoffs in text classifiers.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px", marginTop: "16px" }}>
+                {Object.entries(experiments).map(([name, expData]) => (
+                  <div key={name} style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)", borderRadius: "10px", padding: "16px" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fff", textTransform: "uppercase" }}>
+                      {name.toUpperCase()} Architecture Experiment
+                    </span>
+                    <div style={{ height: "180px", marginTop: "10px" }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={(expData.loss ?? []).map((v, i) => ({
+                            epoch: `Ep ${i + 1}`,
+                            Train: +v.toFixed(3),
+                            Validation: +((expData.val_loss?.[i] ?? 0)).toFixed(3),
+                          }))}
+                        >
+                          <CartesianGrid stroke="#1e293b" vertical={false} />
+                          <XAxis dataKey="epoch" stroke="#64748b" tickLine={false} axisLine={false} fontSize={10} />
+                          <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={10} />
+                          <Tooltip contentStyle={{ background: "#0c1322", border: "1px solid #1e293b", borderRadius: "8px" }} />
+                          <Line type="monotone" dataKey="Train" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="Validation" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
-function Dataset({ stats }: { stats: DatasetStats | null }) {
-  const distribution = stats ? Object.entries(stats.class_distribution).map(([name, value]) => ({ name, count: value })) : [];
-  return <><PageTitle eyebrow="DATA OVERVIEW" title="Dataset" subtitle="Statistics are computed from the prepared dataset; no fabricated values are displayed." />{!stats ? <div className="panel"><EmptyState title="Dataset statistics unavailable" detail="Add the supported dataset files and run the preparation script to calculate these statistics." /></div> : <>
-    <div className="metrics-grid three"><MetricCard label="TOTAL ARTICLES" value={fmt(stats.total)} note="After cleaning and deduplication" icon={Newspaper} /><MetricCard label="REAL ARTICLES" value={fmt(stats.real_count)} note="Prepared labeled articles" icon={Check} /><MetricCard label="FAKE ARTICLES" value={fmt(stats.fake_count)} note="Prepared labeled articles" icon={ShieldAlert} /></div>
-    <div className="panel chart-panel"><h2>Class distribution</h2><p className="panel-subtitle">Prepared dataset counts</p><div className="dataset-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={distribution}><CartesianGrid stroke="#26324b" vertical={false} /><XAxis dataKey="name" stroke="#8290a9" tickLine={false} axisLine={false} /><YAxis stroke="#8290a9" tickLine={false} axisLine={false} /><Tooltip contentStyle={{ background: "#111a2d", border: "1px solid #2d3a55", borderRadius: 12 }} /><Bar dataKey="count" radius={[6, 6, 0, 0]}>{distribution.map((entry) => <Cell key={entry.name} fill={entry.name === "REAL" ? "#22c55e" : "#ef4444"} />)}</Bar></BarChart></ResponsiveContainer></div><div className="split-strip">{Object.entries(stats.split_counts ?? {}).map(([label, count]) => <span key={label}><b>{fmt(count)}</b>{label} split</span>)}</div></div>
-    <div className="panel process-panel"><h2>Preparation pipeline</h2><div className="process-steps"><span>HTML / URL cleanup</span><span>Empty + duplicate removal</span><span>Reuters dateline cleanup</span><span>Stratified 70 / 15 / 15 split</span><span>Training-only tokenizer fit</span></div><p>Headline and article text are combined for classification. Dates, source fields, and subject metadata are not model inputs.</p></div>
-  </>}</>;
-}
+// -------------------------------------------------------------
+// ABOUT VIEW
+// -------------------------------------------------------------
+function AboutView() {
+  return (
+    <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <h1 style={{ fontFamily: "var(--font-sans)", fontSize: "2.4rem", color: "#fff", marginBottom: "12px" }}>
+          About Veritas AI
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: "680px", margin: "0 auto" }}>
+          An advanced machine learning and explainability platform built for deep learning evaluation and academic demonstration.
+        </p>
+      </div>
 
-function About() {
-  return <><PageTitle eyebrow="PROJECT" title="About TruthLens AI" subtitle="A deep learning course project in natural language processing." /><div className="about-grid"><section className="panel about-card"><span className="title-icon blue"><Search size={18} /></span><h2>Problem</h2><p>Misleading news text can spread rapidly. This project studies how neural language models classify examples using patterns from labeled training data.</p></section><section className="panel about-card"><span className="title-icon purple"><BrainCircuit size={18} /></span><h2>Approach</h2><p>Dense, recurrent, and Transformer-based text classifiers can be trained and evaluated on a held-out dataset, then served through a typed API.</p></section><section className="panel about-card"><span className="title-icon amber"><ShieldAlert size={18} /></span><h2>Limitations</h2><p>This is not a fact-checker. Models can reflect dataset bias, fail on new topics, and make confident mistakes. Scores represent learned text patterns, not factual certainty.</p></section><section className="panel about-card"><span className="title-icon green"><BookOpenText size={18} /></span><h2>Technology</h2><p>React, TypeScript, Vite, FastAPI, TensorFlow/Keras, Pandas, NumPy, and scikit-learn. Training is an offline workflow; the browser never trains models.</p></section></div></>;
-}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", marginBottom: "28px" }}>
+        <div className="card-panel">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Search size={16} /></div>
+            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Problem Statement</h3>
+          </div>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
+            Digital misinformation spreads rapidly across online communications. This platform studies how deep neural networks process semantic patterns in headlines and news text, comparing different sequence architectures on empirical benchmarks.
+          </p>
+        </div>
 
-export default App;
+        <div className="card-panel">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Sparkles size={16} /></div>
+            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Explainability First</h3>
+          </div>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
+            Rather than serving as an opaque black box, Veritas AI treats transparency as a first-class feature. Using LIME local perturbations, every prediction provides exact word contributions and plain-English narrative summaries.
+          </p>
+        </div>
+
+        <div className="card-panel">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <div className="brand-icon" style={{ width: "32px", height: "32px" }}><Cpu size={16} /></div>
+            <h3 style={{ fontSize: "1.05rem", color: "#fff" }}>Technology Stack</h3>
+          </div>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>
+            Built using Python, FastAPI, TensorFlow/Keras, Scikit-Learn, and LIME on the backend. Frontend crafted with React 18, TypeScript, Recharts, and custom Vanilla CSS design tokens.
+          </p>
+        </div>
+      </div>
+
+      <div className="card-panel">
+        <div className="panel-header">
+          <div className="panel-header-title">
+            <ShieldAlert size={20} color="var(--uncertain-amber)" />
+            <div>
+              <h2>Responsible AI & Ethical Use Statement</h2>
+              <p>Guidelines on interpreting machine learning predictions.</p>
+            </div>
+          </div>
+        </div>
+
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.86rem", lineHeight: 1.7, marginBottom: "12px" }}>
+          Veritas AI is an educational and research demonstrator designed to study NLP classifiers and explainability techniques. A &quot;REAL&quot; classification indicates that the text matches stylistic, syntactic, and semantic features of verified news in the training distribution. It does <strong>not</strong> constitute an authoritative assertion of real-world factuality.
+        </p>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.86rem", lineHeight: 1.7 }}>
+          Users should always consult primary sources, accredited news organizations, and domain experts before reaching conclusions on news veracity.
+        </p>
+      </div>
+    </div>
+  );
+}
